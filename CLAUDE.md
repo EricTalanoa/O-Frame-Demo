@@ -68,3 +68,14 @@ A static web app, no backend:
 - Smooth animation is the product. If a choice trades smoothness for features,
   choose smoothness. Respect `prefers-reduced-motion`.
 - Commands: document any build/serve steps here as they're added.
+
+## Commands
+
+- Run: `npx serve` (or any static server) and open http://localhost:3000 in
+  Chrome, or open `index.html` directly — everything loads as plain `<script>`
+  tags, so `file://` works too. No build step, no dependencies to install.
+- Keyboard (optional, nothing requires it): `space` pause/resume, `n` skip
+  ahead, `o` toggle shuffle/chronological, `f` fullscreen.
+- MapLibre GL JS is vendored in `vendor/`. Online it loads the OpenFreeMap
+  Positron style and mutes it toward the palette in `js/config.js`; offline it
+  falls back to the bundled Natural Earth world map in `data/world-geo.js`.
