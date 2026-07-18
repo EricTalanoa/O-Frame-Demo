@@ -49,10 +49,26 @@ A static web app, no backend:
 - **Local-first.** Everything must work offline with local files. When a backend
   arrives (Phase 2) it's Node or FastAPI + SQLite on the same box.
 
+## Status (v0.2)
+
+Built and verified so far:
+
+- The full v0.1 ambient loop, plus owner-requested v0.2 changes:
+  - No place-name labels on the map (wall art, not an atlas).
+  - The map is interactive (pan/zoom, click a pin to show that trip now); the
+    ambient loop holds while someone explores and resumes after idle.
+  - The slideshow is a photo deck: the current card takes most of the screen
+    with the previous/next cards peeking in from the sides — swipe, click a
+    peeking card, or use arrow keys.
+- The first Phase 2 slice: `server.js` (zero-dep Node + node:sqlite, Node 22+)
+  with a trips API and a phone upload page at `/upload`. The frame merges
+  uploaded trips with the bundled samples and re-checks periodically.
+
 ## Roadmap after v0.1
 
-- Phase 2: small server (SQLite), phone remote page (fly-to buttons, next/pause,
-  trip upload from iPhone photo picker), settings (dwell times, order mode).
+- Phase 2: small server (SQLite) — **trip upload done, see Status**; still to
+  come: phone remote controls (fly-to buttons, next/pause), settings (dwell
+  times, order mode).
 - Phase 3: EXIF GPS+time clustering to propose trips ("Looks like Portugal,
   May 2019 — add it?"), Walk Through Time film mode with animated routes,
   anniversary bias ("this week in past years").
@@ -71,11 +87,15 @@ A static web app, no backend:
 
 ## Commands
 
-- Run: `npx serve` (or any static server) and open http://localhost:3000 in
-  Chrome, or open `index.html` directly — everything loads as plain `<script>`
-  tags, so `file://` works too. No build step, no dependencies to install.
+- Full demo (frame + upload API): `node server.js` (Node 22+, zero
+  dependencies) then open http://localhost:3000 — upload page at
+  http://localhost:3000/upload. Trip metadata lands in `data/oframe.db`
+  (gitignored), photos in `photos/<slug>/`.
+- Frame only: `npx serve` or open `index.html` directly — everything loads as
+  plain `<script>` tags, so `file://` works too. No build step.
 - Keyboard (optional, nothing requires it): `space` pause/resume, `n` skip
-  ahead, `o` toggle shuffle/chronological, `f` fullscreen.
+  ahead, `←`/`→` move through the photo deck, `o` toggle
+  shuffle/chronological, `f` fullscreen.
 - MapLibre GL JS is vendored in `vendor/`. Online it loads the OpenFreeMap
   Positron style and mutes it toward the palette in `js/config.js`; offline it
   falls back to the bundled Natural Earth world map in `data/world-geo.js`.

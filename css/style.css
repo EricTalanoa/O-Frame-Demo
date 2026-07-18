@@ -4,7 +4,10 @@ html, body {
   overflow: hidden;
   background: #22333e;
   font-family: 'Georgia', 'Times New Roman', serif;
-  cursor: none;
+}
+
+.pin {
+  cursor: pointer;
 }
 
 #map {
@@ -62,26 +65,65 @@ html, body {
   transition: opacity var(--fade, 1.6s) ease;
 }
 
-#slideshow .slide {
+/* Photo deck: current card centered and dominant, prev/next peeking in
+   from the sides. --deck-* vars are set from js/config.js. */
+#slideshow {
+  background: rgba(10, 14, 18, 0.78);
+}
+#slideshow .card {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 50%;
+  width: var(--deck-card-w, 68vw);
+  height: min(74vh, calc(var(--deck-card-w, 68vw) * 0.62));
+  border-radius: 10px;
   overflow: hidden;
-  opacity: 0;
-  transition: opacity var(--fade, 1.6s) ease;
+  background: #f3ede2;
+  padding: 0.55vw;
+  box-sizing: border-box;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, -50%) scale(1);
+  transition: transform 0.8s cubic-bezier(0.25, 0.8, 0.35, 1), opacity 0.8s ease;
+  will-change: transform, opacity;
 }
-#slideshow .slide.showing {
-  opacity: 1;
-}
-#slideshow .slide img {
+#slideshow .card img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform-origin: var(--kb-origin, center center);
-  transform: scale(1);
+  border-radius: 6px;
+  display: block;
 }
-#slideshow .slide.showing img {
-  transform: scale(var(--kb-scale, 1.14)) translate(var(--kb-x, 0), var(--kb-y, 0));
-  transition: transform var(--kb-duration, 9s) linear;
+#slideshow .card--current {
+  z-index: 3;
+}
+#slideshow .card--current img {
+  animation: kenburns var(--kb-duration, 10s) linear forwards;
+}
+@keyframes kenburns {
+  from { transform: scale(1); }
+  to { transform: scale(var(--deck-kb-scale, 1.07)); }
+}
+#slideshow .card--prev, #slideshow .card--next {
+  z-index: 2;
+  opacity: 0.55;
+  cursor: pointer;
+}
+#slideshow .card--prev {
+  transform: translate(calc(-50% - var(--deck-shift, 71vw)), -50%) scale(var(--deck-side-scale, 0.82));
+}
+#slideshow .card--next {
+  transform: translate(calc(-50% + var(--deck-shift, 71vw)), -50%) scale(var(--deck-side-scale, 0.82));
+}
+#slideshow .card--off-left, #slideshow .card--off-right {
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+#slideshow .card--off-left {
+  transform: translate(calc(-50% - var(--deck-shift, 71vw) - 30vw), -50%) scale(var(--deck-side-scale, 0.82));
+}
+#slideshow .card--off-right {
+  transform: translate(calc(-50% + var(--deck-shift, 71vw) + 30vw), -50%) scale(var(--deck-side-scale, 0.82));
 }
 
 /* Caption */
@@ -143,9 +185,11 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #slideshow .slide.showing img {
-    transform: none;
-    transition: none;
+  #slideshow .card--current img {
+    animation: none;
+  }
+  #slideshow .card {
+    transition: opacity 0.8s ease;
   }
   .pin--active {
     animation: none;

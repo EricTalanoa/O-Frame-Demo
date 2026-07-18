@@ -1,27 +1,43 @@
-/* O-Frame v0.1 — ambient map + slideshow loop.
+/* O-Frame v0.2 — interactive ambient map + photo-deck slideshow.
  *
- * Flow: world view (dwell) -> flyTo a trip pin -> full-screen Ken Burns
- * slideshow of that trip's showcase photos -> zoom back out -> next trip.
+ * Flow: world view (dwell) -> flyTo a trip pin -> photo deck of that trip's
+ * showcase photos (current card dominant, prev/next peeking at the sides) ->
+ * zoom back out -> next trip.
  *
- * Keyboard (optional, nothing REQUIRES it): space = pause/resume,
+ * Interaction: pan/zoom the map freely (the loop holds and resumes after
+ * idle), click a pin to show that trip now, swipe / click the peeking cards /
+ * arrow keys to move through photos. Keyboard: space = pause/resume,
  * n = skip ahead, o = toggle order mode, f = fullscreen.
+ *
+ * With `node server.js` running, trips uploaded from the phone are merged in
+ * and re-checked periodically; without a server the bundled js/trips.js data
+ * is used alone (file:// still works).
  */
 (function () {
   'use strict';
 
   const cfg = window.CONFIG;
-  const trips = window.TRIPS;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let trips = window.TRIPS.slice();
 
   const el = {
     slideshow: document.getElementById('slideshow'),
-    slides: [document.getElementById('slide-a'), document.getElementById('slide-b')],
     caption: document.getElementById('caption'),
     captionName: document.querySelector('#caption .trip-name'),
     captionMeta: document.querySelector('#caption .trip-meta'),
     toast: document.getElementById('toast'),
   };
-  document.documentElement.style.setProperty('--fade', cfg.crossfadeSeconds + 's');
+  const root = document.documentElement.style;
+  root.setProperty('--fade', cfg.crossfadeSeconds + 's');
+  root.setProperty('--deck-card-w', cfg.deck.cardWidthVw + 'vw');
+  root.setProperty('--deck-side-scale', cfg.deck.sideScale);
+  root.setProperty('--deck-kb-scale', cfg.deck.kenBurnsScale);
+  // Side cards sit just inside the viewport edge: half the viewport plus half
+  // a scaled card, pulled back in by the configured peek.
+  root.setProperty('--deck-shift',
+    50 + (cfg.deck.cardWidthVw / 2) * cfg.deck.sideScale - cfg.deck.peekVw + 'vw');
+  root.setProperty('--kb-duration', cfg.photoSeconds + cfg.crossfadeSeconds + 's');
 
   // ---------------------------------------------------------------- map style
 
@@ -91,6 +107,11 @@
   }
 
   function muteStyle(style) {
+    // Wall art, not an atlas: drop the label layers (all text/icon symbols)
+    // unless labels are explicitly enabled.
+    if (!cfg.showLabels) {
+      style.layers = (style.layers || []).filter((l) => l.type !== 'symbol');
+    }
     for (const layer of style.layers || []) {
       for (const section of ['paint', 'layout']) {
         const props = layer[section];
@@ -140,13 +161,19 @@
   // ------------------------------------------------------------ ambient state
 
   const state = {
-    paused: false,
-    skip: null,          // resolver for the active wait, honored by skip()
+    paused: false,        // explicit pause (space)
+    userHold: false,      // someone is exploring the map — loop waits
+    skip: null,           // resolver for the active wait, honored by skip()
     orderMode: cfg.orderMode,
     queue: [],
     queuePos: 0,
     lastSlug: null,
+    forcedSlug: null,     // pin click: show this trip next
+    inSlideshow: false,
+    deckIndex: 0,
+    deckLength: 0,
     activeMarkerEl: null,
+    tripsDirty: false,
   };
 
   function shuffled(arr) {
@@ -172,19 +199,28 @@
   }
 
   function nextTrip() {
+    if (state.forcedSlug) {
+      const forced = trips.find((t) => t.slug === state.forcedSlug);
+      state.forcedSlug = null;
+      if (forced) {
+        state.lastSlug = forced.slug;
+        return forced;
+      }
+    }
     if (state.queuePos >= state.queue.length) rebuildQueue();
     const trip = state.queue[state.queuePos++];
     state.lastSlug = trip.slug;
     return trip;
   }
 
-  // Pausable, skippable wait.
+  // Pausable, skippable wait. Holds while paused or while a person is
+  // exploring the map.
   function wait(seconds) {
     return new Promise((resolve) => {
       let remaining = seconds * 1000;
       state.skip = () => { clearInterval(timer); state.skip = null; resolve('skipped'); };
       const timer = setInterval(() => {
-        if (state.paused) return;
+        if (state.paused || state.userHold) return;
         remaining -= 100;
         if (remaining <= 0) { clearInterval(timer); state.skip = null; resolve('done'); }
       }, 100);
@@ -193,6 +229,15 @@
 
   function skip() {
     if (state.skip) state.skip();
+  }
+
+  // Someone touched the map: hold the loop, resume after idle.
+  let idleTimer = null;
+  function userInteracted() {
+    if (state.inSlideshow) return; // deck has its own gestures
+    state.userHold = true;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { state.userHold = false; }, cfg.interactIdleSeconds * 1000);
   }
 
   // --------------------------------------------------------------------- UI
@@ -228,49 +273,80 @@
     toastTimer = setTimeout(() => el.toast.classList.remove('visible'), 1800);
   }
 
-  // ---------------------------------------------------------------- slideshow
+  // --------------------------------------------------------------- photo deck
 
-  let slideFlip = 0;
+  let deckCards = [];
 
-  function showPhoto(trip, photo, index) {
-    const slide = el.slides[slideFlip];
-    const other = el.slides[1 - slideFlip];
-    slideFlip = 1 - slideFlip;
-    const img = slide.querySelector('img');
+  function buildDeck(trip, photos) {
+    el.slideshow.textContent = '';
+    deckCards = photos.map((photo, i) => {
+      const card = document.createElement('div');
+      card.className = 'card card--off-right';
+      const img = document.createElement('img');
+      img.src = `photos/${trip.slug}/${photo.file}`;
+      img.alt = '';
+      card.appendChild(img);
+      card.addEventListener('click', () => {
+        if (card.classList.contains('card--prev')) deckGo(-1);
+        else if (card.classList.contains('card--next')) deckGo(1);
+      });
+      el.slideshow.appendChild(card);
+      return card;
+    });
+  }
 
-    // Fresh node so the Ken Burns transition restarts cleanly each time.
-    const fresh = img.cloneNode(false);
-    fresh.src = `photos/${trip.slug}/${photo.file}`;
-    img.replaceWith(fresh);
+  function renderDeck(index) {
+    deckCards.forEach((card, i) => {
+      card.className = 'card ' + (
+        i < index - 1 ? 'card--off-left' :
+        i === index - 1 ? 'card--prev' :
+        i === index ? 'card--current' :
+        i === index + 1 ? 'card--next' :
+        'card--off-right');
+    });
+  }
 
-    if (!reducedMotion) {
-      const origins = ['20% 30%', '80% 30%', '30% 75%', '75% 70%', 'center center'];
-      slide.style.setProperty('--kb-origin', origins[index % origins.length]);
-      slide.style.setProperty('--kb-scale', cfg.kenBurnsScale);
-      slide.style.setProperty('--kb-x', (index % 2 ? 1 : -1) * 1.5 + '%');
-      slide.style.setProperty('--kb-y', (index % 3 ? -1 : 1) + '%');
-      slide.style.setProperty('--kb-duration', cfg.photoSeconds + cfg.crossfadeSeconds * 2 + 's');
-    }
-
-    // Force layout so the transform transition starts from the un-showing state.
-    void slide.offsetWidth;
-    slide.classList.add('showing');
-    other.classList.remove('showing');
+  // Manual navigation while the deck is up. +1 past the last card ends the
+  // slideshow (same as letting it play out).
+  function deckGo(delta) {
+    if (!state.inSlideshow) return;
+    const next = state.deckIndex + delta;
+    if (next < 0) return;
+    state.deckIndex = next;
+    skip();
   }
 
   async function runSlideshow(trip) {
     const photos = trip.photos.filter((p) => p.showcase);
     if (!photos.length) return;
+    buildDeck(trip, photos);
+    state.inSlideshow = true;
+    state.deckLength = photos.length;
+    state.deckIndex = 0;
     el.slideshow.classList.add('visible');
-    for (let i = 0; i < photos.length; i++) {
-      showPhoto(trip, photos[i], i);
+    while (state.deckIndex < photos.length) {
+      renderDeck(state.deckIndex);
+      const shown = state.deckIndex;
       await wait(cfg.photoSeconds);
+      if (state.deckIndex === shown) state.deckIndex++; // auto-advance unless someone navigated
     }
+    state.inSlideshow = false;
     el.slideshow.classList.remove('visible');
     // let the overlay fade reveal the map again before flying out
     await wait(cfg.crossfadeSeconds);
-    el.slides.forEach((s) => s.classList.remove('showing'));
+    el.slideshow.textContent = '';
+    deckCards = [];
   }
+
+  // Swipe on the deck (touch or mouse).
+  let swipeStartX = null;
+  el.slideshow.addEventListener('pointerdown', (e) => { swipeStartX = e.clientX; });
+  el.slideshow.addEventListener('pointerup', (e) => {
+    if (swipeStartX === null) return;
+    const dx = e.clientX - swipeStartX;
+    swipeStartX = null;
+    if (Math.abs(dx) >= cfg.deck.swipePx) deckGo(dx < 0 ? 1 : -1);
+  });
 
   function preloadTrip(trip) {
     for (const p of trip.photos) {
@@ -278,10 +354,38 @@
     }
   }
 
+  // ----------------------------------------------------------- trips loading
+
+  async function fetchServerTrips() {
+    const res = await fetch('/api/trips', { cache: 'no-store' });
+    if (!res.ok) throw new Error('trips fetch failed: ' + res.status);
+    return (await res.json()).trips || [];
+  }
+
+  // Server trips override bundled samples with the same slug, else append.
+  function mergeTrips(bundled, server) {
+    const bySlug = new Map(bundled.map((t) => [t.slug, t]));
+    for (const t of server) bySlug.set(t.slug, t);
+    return [...bySlug.values()];
+  }
+
+  async function refreshTrips() {
+    try {
+      const merged = mergeTrips(window.TRIPS, await fetchServerTrips());
+      if (JSON.stringify(merged) !== JSON.stringify(trips)) {
+        trips = merged;
+        state.tripsDirty = true;
+      }
+    } catch {
+      /* no server running — bundled data only */
+    }
+  }
+
   // -------------------------------------------------------------------- loop
 
   let map;
-  const markersBySlug = {};
+  let markers = [];
+  let markersBySlug = {};
 
   function flyAndWait(opts) {
     return new Promise((resolve) => {
@@ -300,12 +404,59 @@
     if (state.activeMarkerEl) state.activeMarkerEl.classList.add('pin--active');
   }
 
+  // MapLibre positions the marker element itself via CSS transform, so the
+  // visible (and animatable) dot lives in a child element.
+  function addPin(className, color, lngLat, onClick) {
+    const wrap = document.createElement('div');
+    const dot = document.createElement('div');
+    dot.className = 'pin ' + className;
+    dot.style.setProperty('--pin-color', color);
+    wrap.appendChild(dot);
+    if (onClick) {
+      wrap.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    }
+    const marker = new maplibregl.Marker({ element: wrap }).setLngLat(lngLat).addTo(map);
+    markers.push(marker);
+    return dot;
+  }
+
+  function buildMarkers() {
+    for (const m of markers) m.remove();
+    markers = [];
+    markersBySlug = {};
+    state.activeMarkerEl = null;
+    for (const trip of trips) {
+      for (const stop of trip.stops) {
+        const dot = addPin('pin--trip', cfg.palette.pin, [stop.lng, stop.lat], () => showTripNow(trip.slug));
+        if (stop.order === 0) markersBySlug[trip.slug] = dot;
+      }
+    }
+    for (const wish of window.WISHLIST || []) {
+      addPin('pin--wishlist', cfg.palette.wishlist, [wish.lng, wish.lat]);
+    }
+  }
+
+  // Pin click: break out of whatever the loop is doing and show this trip.
+  function showTripNow(slug) {
+    if (state.inSlideshow) return;
+    state.forcedSlug = slug;
+    state.userHold = false;
+    state.paused = false;
+    skip();
+  }
+
   async function ambientLoop() {
     rebuildQueue();
     while (true) {
-      await wait(cfg.worldDwellSeconds);
+      if (state.tripsDirty) {
+        state.tripsDirty = false;
+        buildMarkers();
+        rebuildQueue();
+        toast('Trips updated');
+      }
+      if (!state.forcedSlug) await wait(cfg.worldDwellSeconds);
       const trip = nextTrip();
-      const stop = trip.stops[0]; // v0.1: fly to the first stop
+      const stop = trip.stops[0]; // fly to the first stop
       preloadTrip(trip);
 
       setActivePin(trip.slug);
@@ -319,7 +470,9 @@
 
       hideCaption();
       setActivePin(null);
-      await flyAndWait({ center: cfg.world.center, zoom: cfg.world.zoom });
+      if (!state.forcedSlug) {
+        await flyAndWait({ center: cfg.world.center, zoom: cfg.world.zoom });
+      }
     }
   }
 
@@ -332,6 +485,10 @@
       toast(state.paused ? 'Paused' : 'Resumed');
     } else if (e.key === 'n') {
       skip();
+    } else if (e.key === 'ArrowRight') {
+      if (state.inSlideshow) deckGo(1);
+    } else if (e.key === 'ArrowLeft') {
+      if (state.inSlideshow) deckGo(-1);
     } else if (e.key === 'o') {
       state.orderMode = state.orderMode === 'shuffle' ? 'chronological' : 'shuffle';
       rebuildQueue();
@@ -345,40 +502,37 @@
   // -------------------------------------------------------------------- boot
 
   async function boot() {
+    try {
+      trips = mergeTrips(window.TRIPS, await fetchServerTrips());
+    } catch {
+      /* no server running — bundled data only */
+    }
+
     const style = await loadStyle();
     map = new maplibregl.Map({
       container: 'map',
       style,
       center: cfg.world.center,
       zoom: cfg.world.zoom,
-      interactive: false, // the wall does the showing; the phone will do the choosing
       attributionControl: { compact: true },
+      // Pan and zoom, but keep the frame flat: no rotate, no pitch.
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
     });
+    map.touchZoomRotate.disableRotation();
 
-    // MapLibre positions the marker element itself via CSS transform, so the
-    // visible (and animatable) dot lives in a child element.
-    function addPin(className, color, lngLat) {
-      const wrap = document.createElement('div');
-      const dot = document.createElement('div');
-      dot.className = 'pin ' + className;
-      dot.style.setProperty('--pin-color', color);
-      wrap.appendChild(dot);
-      new maplibregl.Marker({ element: wrap }).setLngLat(lngLat).addTo(map);
-      return dot;
+    // A person exploring holds the ambient loop; it resumes after idle.
+    for (const ev of ['dragstart', 'wheel', 'touchstart', 'dblclick']) {
+      map.on(ev, userInteracted);
     }
 
-    for (const trip of trips) {
-      for (const stop of trip.stops) {
-        const dot = addPin('pin--trip', cfg.palette.pin, [stop.lng, stop.lat]);
-        if (stop.order === 0) markersBySlug[trip.slug] = dot;
-      }
-    }
-    for (const wish of window.WISHLIST || []) {
-      addPin('pin--wishlist', cfg.palette.wishlist, [wish.lng, wish.lat]);
-    }
+    buildMarkers();
+    setInterval(refreshTrips, cfg.tripsRefreshSeconds * 1000);
 
     map.once('load', () => {
-      window.__oframeReady = true; // hook for automated smoke tests
+      window.__oframe = { map, state }; // hook for automated smoke tests
+      window.__oframeReady = true;
       ambientLoop();
     });
   }
