@@ -1,7 +1,17 @@
 /* Upload page: create a trip, drop its pin on a map, send photos.
+ *
+ * Photos are prepared ON THE PHONE before upload: whatever the picker hands
+ * over (HEIC from an iPhone camera roll, a 12MP JPEG, a PNG) is decoded by
+ * the browser, downscaled to frame size, and re-encoded as JPEG. The server
+ * stays dumb and zero-dependency, uploads are small, and the frame never
+ * sees a format it can't display. Each file succeeds or fails on its own.
+ *
  * Talks to the API in server.js; see CLAUDE.md for the data model. */
 (function () {
   'use strict';
+
+  const MAX_DIMENSION = 2560; // longest edge after resize — plenty for a 4K frame
+  const JPEG_QUALITY = 0.85;
 
   const $ = (id) => document.getElementById(id);
   const status = $('status');
@@ -47,7 +57,44 @@
     });
   }
 
-  // ------------------------------------------------------------------ submit
+  // -------------------------------------------------------- photo preparation
+
+  // Decode via <img> for browsers where createImageBitmap can't take this
+  // file. The browser applies EXIF orientation itself when drawing.
+  function decodeViaImg(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('cannot decode this image')); };
+      img.src = url;
+    });
+  }
+
+  // File -> { blob, name } ready to upload: oriented, resized, JPEG.
+  async function prepPhoto(file) {
+    if (/\.svg$/i.test(file.name)) return { blob: file, name: file.name };
+    let source;
+    try {
+      source = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      source = await decodeViaImg(file);
+    }
+    const w = source.naturalWidth || source.width;
+    const h = source.naturalHeight || source.height;
+    if (!w || !h) throw new Error('cannot decode this image');
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    if (source.close) source.close();
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', JPEG_QUALITY));
+    if (!blob) throw new Error('could not encode JPEG');
+    return { blob, name: file.name.replace(/\.[^.]+$/, '') + '.jpg' };
+  }
+
+  // ---------------------------------------------------------------- API layer
 
   async function api(url, opts) {
     const res = await fetch(url, opts);
@@ -55,6 +102,40 @@
     if (!res.ok) throw new Error(body.error || res.status + ' ' + res.statusText);
     return body;
   }
+
+  // Upload files one at a time; a bad photo doesn't sink the rest.
+  async function uploadPhotos(slug, files, report) {
+    const failed = [];
+    let done = 0;
+    for (const file of files) {
+      report(`Uploading photo ${done + failed.length + 1} of ${files.length}…`);
+      try {
+        const { blob, name } = await prepPhoto(file);
+        await api(`/api/photos?slug=${encodeURIComponent(slug)}&name=${encodeURIComponent(name)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: blob,
+        });
+        done++;
+      } catch (err) {
+        failed.push(`${file.name} (${err.message})`);
+      }
+    }
+    return { done, failed };
+  }
+
+  function reportUpload(tripName, { done, failed }) {
+    if (!failed.length) {
+      status.className = '';
+      status.textContent = `Added ${done} photo${done === 1 ? '' : 's'} to "${tripName}" — on the frame.`;
+    } else {
+      status.className = 'error';
+      status.textContent =
+        `${done} of ${done + failed.length} photos uploaded to "${tripName}". Failed: ${failed.join(', ')}`;
+    }
+  }
+
+  // ------------------------------------------------------------------ submit
 
   $('form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -76,17 +157,8 @@
         }),
       });
 
-      const files = [...$('photos').files];
-      for (let i = 0; i < files.length; i++) {
-        status.textContent = `Uploading photo ${i + 1} of ${files.length}…`;
-        await api(`/api/photos?slug=${encodeURIComponent(trip.slug)}&name=${encodeURIComponent(files[i].name)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: files[i],
-        });
-      }
-
-      status.textContent = `Added "${trip.name}" — it's on the frame.`;
+      const result = await uploadPhotos(trip.slug, [...$('photos').files], (msg) => { status.textContent = msg; });
+      reportUpload(trip.name, result);
       $('form').reset();
       if (markerSet) { marker.remove(); markerSet = false; }
       loadTrips();
@@ -99,6 +171,26 @@
   });
 
   // -------------------------------------------------------------- trip list
+
+  // One hidden picker, reused for "Add photos" on any existing trip.
+  const addInput = document.createElement('input');
+  addInput.type = 'file';
+  addInput.accept = 'image/*';
+  addInput.multiple = true;
+  addInput.style.display = 'none';
+  document.body.appendChild(addInput);
+  let addTarget = null; // { slug, name }
+
+  addInput.addEventListener('change', async () => {
+    if (!addTarget || !addInput.files.length) return;
+    const target = addTarget;
+    const files = [...addInput.files];
+    addInput.value = '';
+    status.className = '';
+    const result = await uploadPhotos(target.slug, files, (msg) => { status.textContent = msg; });
+    reportUpload(target.name, result);
+    loadTrips();
+  });
 
   async function loadTrips() {
     const list = $('trips');
@@ -114,6 +206,14 @@
         row.className = 'trip-item';
         const info = document.createElement('span');
         info.innerHTML = `${t.name}<small>${t.stops[0]?.place ?? ''} · ${t.photos.length} photo${t.photos.length === 1 ? '' : 's'}</small>`;
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'del';
+        add.textContent = 'Add photos';
+        add.addEventListener('click', () => {
+          addTarget = { slug: t.slug, name: t.name };
+          addInput.click();
+        });
         const del = document.createElement('button');
         del.type = 'button';
         del.className = 'del';
@@ -123,7 +223,7 @@
           await api(`/api/trips/${t.slug}`, { method: 'DELETE' });
           loadTrips();
         });
-        row.append(info, del);
+        row.append(info, add, del);
         list.appendChild(row);
       }
     } catch {
