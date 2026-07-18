@@ -1,0 +1,218 @@
+/* O-Frame server — Phase 2, first slice: trip upload.
+ *
+ * Zero dependencies: Node's built-in http + node:sqlite (Node 22+).
+ * Serves the static frame at / and the phone upload page at /upload, and a
+ * small JSON API the frame merges with the bundled sample trips:
+ *
+ *   GET    /api/trips                  -> { trips: [Trip] }
+ *   POST   /api/trips                  <- { name, startDate, endDate, stops: [{place, lat, lng}] }
+ *   POST   /api/photos?slug=&name=     <- raw image bytes; saved to photos/<slug>/
+ *   DELETE /api/trips/<slug>
+ *
+ * Run: node server.js   (http://localhost:3000, PORT env to change)
+ * Uploaded photos land in photos/<slug>/ next to the sample ones; trip
+ * metadata lives in data/oframe.db (gitignored).
+ */
+'use strict';
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { DatabaseSync } = require('node:sqlite');
+
+const ROOT = __dirname;
+const PORT = process.env.PORT || 3000;
+const DB_PATH = path.join(ROOT, 'data', 'oframe.db');
+
+// ------------------------------------------------------------------ database
+
+const db = new DatabaseSync(DB_PATH);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trips (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS stops (
+    trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    ord INTEGER NOT NULL,
+    place TEXT NOT NULL,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS photos (
+    trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    stop_ord INTEGER NOT NULL DEFAULT 0,
+    file TEXT NOT NULL,
+    showcase INTEGER NOT NULL DEFAULT 1
+  );
+`);
+db.exec('PRAGMA foreign_keys = ON');
+
+function listTrips() {
+  const trips = db.prepare('SELECT * FROM trips ORDER BY start_date').all();
+  const stops = db.prepare('SELECT * FROM stops WHERE trip_id = ? ORDER BY ord');
+  const photos = db.prepare('SELECT * FROM photos WHERE trip_id = ? ORDER BY file');
+  return trips.map((t) => ({
+    slug: t.slug,
+    name: t.name,
+    startDate: t.start_date,
+    endDate: t.end_date,
+    stops: stops.all(t.id).map((s) => ({ order: s.ord, place: s.place, lat: s.lat, lng: s.lng })),
+    photos: photos.all(t.id).map((p) => ({ file: p.file, stop: p.stop_ord, showcase: !!p.showcase })),
+  }));
+}
+
+function slugify(name, startDate) {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  const year = (startDate || '').slice(0, 4);
+  let slug = year ? `${base}-${year}` : base;
+  let n = 2;
+  while (db.prepare('SELECT 1 FROM trips WHERE slug = ?').get(slug)) slug = `${base}-${year}-${n++}`;
+  return slug;
+}
+
+function createTrip(body) {
+  const { name, startDate, endDate, stops } = body;
+  if (!name || !startDate || !endDate) throw httpError(400, 'name, startDate and endDate are required');
+  if (!Array.isArray(stops) || !stops.length) throw httpError(400, 'at least one stop is required');
+  for (const s of stops) {
+    if (!s.place || typeof s.lat !== 'number' || typeof s.lng !== 'number') {
+      throw httpError(400, 'each stop needs place, lat and lng');
+    }
+  }
+  const slug = slugify(name, startDate);
+  const { lastInsertRowid: id } =
+    db.prepare('INSERT INTO trips (slug, name, start_date, end_date) VALUES (?, ?, ?, ?)')
+      .run(slug, String(name), String(startDate), String(endDate));
+  const insStop = db.prepare('INSERT INTO stops (trip_id, ord, place, lat, lng) VALUES (?, ?, ?, ?, ?)');
+  stops.forEach((s, i) => insStop.run(id, i, String(s.place), s.lat, s.lng));
+  return listTrips().find((t) => t.slug === slug);
+}
+
+function deleteTrip(slug) {
+  const trip = db.prepare('SELECT id FROM trips WHERE slug = ?').get(slug);
+  if (!trip) throw httpError(404, 'no such trip');
+  db.prepare('DELETE FROM trips WHERE id = ?').run(trip.id);
+  // photos on disk are kept — they're the user's files
+}
+
+function addPhoto(slug, name, buffer) {
+  const trip = db.prepare('SELECT id FROM trips WHERE slug = ?').get(slug);
+  if (!trip) throw httpError(404, 'no such trip — create it first');
+  if (!buffer.length) throw httpError(400, 'empty upload');
+  const safe = path.basename(name || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_');
+  if (!/\.(jpe?g|png|webp|gif|svg|heic)$/i.test(safe)) throw httpError(400, 'unsupported file type');
+  const dir = path.join(ROOT, 'photos', slug);
+  fs.mkdirSync(dir, { recursive: true });
+  let file = safe;
+  let n = 2;
+  while (fs.existsSync(path.join(dir, file))) {
+    file = safe.replace(/(\.[^.]+)$/, `-${n++}$1`);
+  }
+  fs.writeFileSync(path.join(dir, file), buffer);
+  db.prepare('INSERT INTO photos (trip_id, stop_ord, file, showcase) VALUES (?, 0, ?, 1)')
+    .run(trip.id, file);
+  return { file };
+}
+
+// -------------------------------------------------------------------- server
+
+function httpError(status, message) {
+  const e = new Error(message);
+  e.status = status;
+  return e;
+}
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+function sendJSON(res, status, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.end(body);
+}
+
+function readBody(req, limitBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limitBytes) {
+        reject(httpError(413, 'upload too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+async function handleApi(req, res, url) {
+  if (req.method === 'GET' && url.pathname === '/api/trips') {
+    return sendJSON(res, 200, { trips: listTrips() });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/trips') {
+    const body = JSON.parse((await readBody(req, 1e6)).toString('utf8') || '{}');
+    return sendJSON(res, 201, { trip: createTrip(body) });
+  }
+  if (req.method === 'DELETE' && /^\/api\/trips\/[\w-]+$/.test(url.pathname)) {
+    deleteTrip(url.pathname.split('/').pop());
+    return sendJSON(res, 200, { ok: true });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/photos') {
+    const slug = url.searchParams.get('slug');
+    const name = url.searchParams.get('name');
+    if (!slug) throw httpError(400, 'slug query parameter is required');
+    const buffer = await readBody(req, 50e6);
+    return sendJSON(res, 201, addPhoto(slug, name, buffer));
+  }
+  throw httpError(404, 'not found');
+}
+
+function serveStatic(req, res, url) {
+  let p = decodeURIComponent(url.pathname);
+  if (p === '/') p = '/index.html';
+  if (p === '/upload') p = '/upload.html';
+  const file = path.join(ROOT, p);
+  if (!file.startsWith(ROOT + path.sep)) return sendJSON(res, 403, { error: 'forbidden' });
+  fs.readFile(file, (err, data) => {
+    if (err) return sendJSON(res, 404, { error: 'not found' });
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+      'Content-Length': data.length,
+    });
+    res.end(data);
+  });
+}
+
+http.createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  try {
+    if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
+    else if (req.method === 'GET') serveStatic(req, res, url);
+    else throw httpError(405, 'method not allowed');
+  } catch (err) {
+    sendJSON(res, err.status || 500, { error: err.message });
+    if (!err.status) console.error(err);
+  }
+}).listen(PORT, () => {
+  console.log(`O-Frame on http://localhost:${PORT}  (upload page: http://localhost:${PORT}/upload)`);
+});

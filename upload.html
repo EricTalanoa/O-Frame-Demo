@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>O-Frame · Add a trip</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="vendor/maplibre-gl.css" />
+  <style>
+    :root {
+      --ink: #22333e;
+      --parchment: #f3ede2;
+      --accent: #c94f4f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--ink);
+      color: var(--parchment);
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      padding: 16px;
+      max-width: 560px;
+      margin-inline: auto;
+    }
+    h1 {
+      font-family: Georgia, serif;
+      font-style: italic;
+      font-weight: normal;
+      font-size: 28px;
+      margin: 8px 0 2px;
+    }
+    .sub { opacity: 0.7; font-size: 13px; margin-bottom: 18px; }
+    label { display: block; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; margin: 14px 0 4px; }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(243, 237, 226, 0.25);
+      background: rgba(243, 237, 226, 0.08);
+      color: var(--parchment);
+      font-size: 16px;
+    }
+    input[type="file"] { padding: 8px; }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    #picker { height: 260px; border-radius: 10px; margin-top: 6px; overflow: hidden; }
+    .hint { font-size: 12px; opacity: 0.6; margin-top: 4px; }
+    button {
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px;
+      font-size: 17px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; }
+    #status { margin-top: 12px; font-size: 14px; min-height: 1.4em; }
+    #status.error { color: #f0a0a0; }
+    .trip-list { margin-top: 28px; border-top: 1px solid rgba(243, 237, 226, 0.15); padding-top: 12px; }
+    .trip-list h2 { font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+    .trip-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; font-size: 15px; gap: 8px; }
+    .trip-item small { opacity: 0.6; display: block; }
+    .trip-item .del {
+      width: auto; margin: 0; padding: 6px 12px; font-size: 13px;
+      background: transparent; border: 1px solid rgba(243, 237, 226, 0.3); color: var(--parchment);
+    }
+    .pin-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid white; box-shadow: 0 1px 6px rgba(0,0,0,.4); }
+  </style>
+</head>
+<body>
+  <h1>Add a trip</h1>
+  <div class="sub">The wall does the showing — this is where you do the choosing.</div>
+
+  <form id="form">
+    <label for="name">Trip name</label>
+    <input id="name" required placeholder="Rugby tour — Fiji" />
+
+    <div class="row">
+      <div>
+        <label for="start">Start date</label>
+        <input id="start" type="date" required />
+      </div>
+      <div>
+        <label for="end">End date</label>
+        <input id="end" type="date" required />
+      </div>
+    </div>
+
+    <label for="place">Place</label>
+    <input id="place" required placeholder="Suva, Fiji" />
+
+    <label>Location</label>
+    <div id="picker"></div>
+    <div class="hint">Tap the map to drop the pin.</div>
+    <div class="row">
+      <div>
+        <label for="lat">Latitude</label>
+        <input id="lat" type="number" step="any" required />
+      </div>
+      <div>
+        <label for="lng">Longitude</label>
+        <input id="lng" type="number" step="any" required />
+      </div>
+    </div>
+
+    <label for="photos">Photos</label>
+    <input id="photos" type="file" accept="image/*" multiple />
+
+    <button id="submit" type="submit">Add to the frame</button>
+    <div id="status"></div>
+  </form>
+
+  <div class="trip-list">
+    <h2>Uploaded trips</h2>
+    <div id="trips"></div>
+  </div>
+
+  <script src="vendor/maplibre-gl.js"></script>
+  <script src="js/config.js"></script>
+  <script src="data/world-geo.js"></script>
+  <script src="js/upload.js"></script>
+</body>
+</html>

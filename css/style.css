@@ -1,0 +1,197 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #22333e;
+  font-family: 'Georgia', 'Times New Roman', serif;
+}
+
+.pin {
+  cursor: pointer;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+/* Soft vignette so the map reads as framed wall art */
+#vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background: radial-gradient(ellipse at center,
+    transparent 55%, rgba(10, 14, 18, 0.28) 100%);
+  box-shadow: inset 0 0 120px rgba(10, 14, 18, 0.35);
+}
+
+/* Pins */
+.pin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25), 0 1px 6px rgba(0, 0, 0, 0.4);
+}
+.pin--trip {
+  background: var(--pin-color, #c94f4f);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+}
+.pin--wishlist {
+  background: transparent;
+  border: 2.5px solid var(--pin-color, #5f8fa8);
+}
+.pin--active {
+  animation: pin-pulse 2.2s ease-in-out infinite;
+}
+@keyframes pin-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
+/* Slideshow overlay */
+#slideshow {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: #0c1014;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--fade, 1.6s) ease, visibility 0s linear var(--fade, 1.6s);
+}
+#slideshow.visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--fade, 1.6s) ease;
+}
+
+/* Photo deck: current card centered and dominant, prev/next peeking in
+   from the sides. --deck-* vars are set from js/config.js. */
+#slideshow {
+  background: rgba(10, 14, 18, 0.78);
+}
+#slideshow .card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--deck-card-w, 68vw);
+  height: min(74vh, calc(var(--deck-card-w, 68vw) * 0.62));
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f3ede2;
+  padding: 0.55vw;
+  box-sizing: border-box;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, -50%) scale(1);
+  transition: transform 0.8s cubic-bezier(0.25, 0.8, 0.35, 1), opacity 0.8s ease;
+  will-change: transform, opacity;
+}
+#slideshow .card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+}
+#slideshow .card--current {
+  z-index: 3;
+}
+#slideshow .card--current img {
+  animation: kenburns var(--kb-duration, 10s) linear forwards;
+}
+@keyframes kenburns {
+  from { transform: scale(1); }
+  to { transform: scale(var(--deck-kb-scale, 1.07)); }
+}
+#slideshow .card--prev, #slideshow .card--next {
+  z-index: 2;
+  opacity: 0.55;
+  cursor: pointer;
+}
+#slideshow .card--prev {
+  transform: translate(calc(-50% - var(--deck-shift, 71vw)), -50%) scale(var(--deck-side-scale, 0.82));
+}
+#slideshow .card--next {
+  transform: translate(calc(-50% + var(--deck-shift, 71vw)), -50%) scale(var(--deck-side-scale, 0.82));
+}
+#slideshow .card--off-left, #slideshow .card--off-right {
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+#slideshow .card--off-left {
+  transform: translate(calc(-50% - var(--deck-shift, 71vw) - 30vw), -50%) scale(var(--deck-side-scale, 0.82));
+}
+#slideshow .card--off-right {
+  transform: translate(calc(-50% + var(--deck-shift, 71vw) + 30vw), -50%) scale(var(--deck-side-scale, 0.82));
+}
+
+/* Caption */
+#caption {
+  position: absolute;
+  left: 4vw;
+  bottom: 5vh;
+  z-index: 11;
+  color: #f3ede2;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  pointer-events: none;
+}
+#caption.visible {
+  opacity: 1;
+}
+#caption .trip-name {
+  font-size: 3.2vw;
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+#caption .trip-meta {
+  margin-top: 0.6vh;
+  font-size: 1.4vw;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 300;
+}
+
+/* Transient toast for keyboard toggles */
+#toast {
+  position: absolute;
+  top: 4vh;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 0.6em 1.4em;
+  border-radius: 999px;
+  background: rgba(12, 16, 20, 0.72);
+  color: #f3ede2;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+#toast.visible {
+  opacity: 1;
+}
+
+/* Tone down the attribution so it doesn't break the art illusion */
+.maplibregl-ctrl-attrib {
+  opacity: 0.35;
+  font-size: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #slideshow .card--current img {
+    animation: none;
+  }
+  #slideshow .card {
+    transition: opacity 0.8s ease;
+  }
+  .pin--active {
+    animation: none;
+  }
+}
