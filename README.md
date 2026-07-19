@@ -27,6 +27,16 @@ Optional keys: `space` pause · `n` skip ahead · `←`/`→` move through photo
 Four themes are built in — ink, atlas, midnight, porcelain — press `t` to
 cycle; the choice is remembered.
 
+## The remote
+
+Open http://localhost:3000/remote on your phone: pick the theme, pause or
+skip, switch shuffle vs. "walk through time", fly to any trip, and tune the
+timings — the frame reacts live, and settings stick across restarts.
+
+If every trip is in one region, the frame rests zoomed to that region
+instead of the whole world; it pulls back automatically once trips span the
+globe.
+
 ## Add your own trips
 
 Open http://localhost:3000/upload on your phone (or laptop): name the trip,

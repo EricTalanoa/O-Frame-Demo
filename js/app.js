@@ -517,13 +517,79 @@
     }
   }
 
-  // Pin click: break out of whatever the loop is doing and show this trip.
+  // Pin click or remote "Show": break out of whatever the loop is doing
+  // (mid-slideshow included) and show this trip.
   function showTripNow(slug) {
-    if (state.inSlideshow) return;
     state.forcedSlug = slug;
     state.userHold = false;
     state.paused = false;
+    if (state.inSlideshow) state.deckIndex = Infinity; // ends the deck loop
     skip();
+  }
+
+  // ------------------------------------------------------- home (rest) view
+  // If every trip clusters in one region — one state, one country, one
+  // continent — the frame rests zoomed to that region instead of the whole
+  // world. Falls back to the world view for a global spread or no trips.
+
+  let homeView = cfg.world;
+
+  function computeHomeView() {
+    if (!map) return cfg.world;
+    const pts = [];
+    for (const t of trips) for (const s of t.stops) pts.push([s.lng, s.lat]);
+    if (!pts.length) return cfg.world;
+    const bounds = new maplibregl.LngLatBounds(pts[0], pts[0]);
+    for (const p of pts) bounds.extend(p);
+    const cam = map.cameraForBounds(bounds, { padding: 140, maxZoom: cfg.homeMaxZoom });
+    if (!cam) return cfg.world;
+    return { center: cam.center, zoom: Math.max(cfg.world.zoom, cam.zoom) };
+  }
+
+  // ------------------------------------------------ server settings + remote
+
+  function applySettings(s) {
+    if (!s) return;
+    if (s.theme && cfg.themes[s.theme] && s.theme !== cfg.theme) applyTheme(s.theme);
+    if (s.orderMode && s.orderMode !== state.orderMode) {
+      state.orderMode = s.orderMode;
+      rebuildQueue();
+    }
+    if (s.worldDwellSeconds) cfg.worldDwellSeconds = +s.worldDwellSeconds;
+    if (s.photoSeconds) {
+      cfg.photoSeconds = +s.photoSeconds;
+      root.setProperty('--kb-duration', cfg.photoSeconds + cfg.crossfadeSeconds + 's');
+    }
+  }
+
+  // Live commands from the phone remote, relayed by the server.
+  function connectRemote() {
+    const es = new EventSource('/api/events');
+    es.onmessage = (e) => {
+      let cmd;
+      try { cmd = JSON.parse(e.data); } catch { return; }
+      if (cmd.type === 'theme' && cfg.themes[cmd.name]) {
+        applyTheme(cmd.name);
+        toast('Theme: ' + cmd.name[0].toUpperCase() + cmd.name.slice(1));
+      } else if (cmd.type === 'next') {
+        skip();
+      } else if (cmd.type === 'pause') {
+        state.paused = true;
+        toast('Paused');
+      } else if (cmd.type === 'resume') {
+        state.paused = false;
+        state.userHold = false;
+        toast('Resumed');
+      } else if (cmd.type === 'order' && cmd.mode) {
+        state.orderMode = cmd.mode;
+        rebuildQueue();
+        toast(cmd.mode === 'shuffle' ? 'Order: shuffle' : 'Order: walk through time');
+      } else if (cmd.type === 'show' && cmd.slug) {
+        showTripNow(cmd.slug);
+      } else if (cmd.type === 'settings') {
+        applySettings(cmd);
+      }
+    };
   }
 
   async function ambientLoop() {
@@ -533,6 +599,7 @@
         state.tripsDirty = false;
         buildMarkers();
         rebuildQueue();
+        homeView = computeHomeView();
         toast('Trips updated');
       }
       if (!trips.length) { await wait(cfg.worldDwellSeconds); continue; }
@@ -553,7 +620,7 @@
       hideCaption();
       setActivePin(null);
       if (!state.forcedSlug) {
-        await flyAndWait({ center: cfg.world.center, zoom: cfg.world.zoom });
+        await flyAndWait({ center: homeView.center, zoom: homeView.zoom });
       }
     }
   }
@@ -589,10 +656,14 @@
 
   async function boot() {
     applyThemeVars();
+    let serverPresent = false;
     try {
       trips = mergeTrips(bundledTrips(), await fetchServerTrips());
+      serverPresent = true;
+      const { settings } = await (await fetch('/api/settings', { cache: 'no-store' })).json();
+      applySettings(settings);
     } catch {
-      /* no server running — bundled data only */
+      /* no server running — bundled data + local prefs only */
     }
 
     const style = await loadStyle();
@@ -616,8 +687,11 @@
 
     buildMarkers();
     setInterval(refreshTrips, cfg.tripsRefreshSeconds * 1000);
+    if (serverPresent) connectRemote();
 
     map.once('load', () => {
+      homeView = computeHomeView();
+      map.jumpTo({ center: homeView.center, zoom: homeView.zoom });
       window.__oframe = { map, state, applyTheme }; // hook for automated smoke tests
       window.__oframeReady = true;
       ambientLoop();

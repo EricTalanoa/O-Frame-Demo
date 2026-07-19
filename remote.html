@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>O-Frame · Remote</title>
+  <link rel="icon" href="data:," />
+  <style>
+    :root {
+      --ink: #22333e;
+      --parchment: #f3ede2;
+      --accent: #c94f4f;
+      --line: rgba(243, 237, 226, 0.18);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto;
+      max-width: 560px;
+      padding: 16px 16px 40px;
+      background: var(--ink);
+      color: var(--parchment);
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+    }
+    h1 {
+      font-family: Georgia, serif;
+      font-style: italic;
+      font-weight: normal;
+      font-size: 28px;
+      margin: 8px 0 2px;
+    }
+    .sub { opacity: 0.7; font-size: 13px; margin-bottom: 6px; }
+    .sub a { color: var(--parchment); }
+    h2 {
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.75;
+      margin: 26px 0 10px;
+      border-top: 1px solid var(--line);
+      padding-top: 16px;
+    }
+    .row { display: flex; gap: 10px; }
+    button {
+      flex: 1;
+      padding: 14px;
+      font-size: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(243, 237, 226, 0.08);
+      color: var(--parchment);
+      cursor: pointer;
+    }
+    button:active { background: rgba(243, 237, 226, 0.2); }
+    button.primary { background: var(--accent); border-color: transparent; color: white; }
+    /* Theme swatches */
+    .themes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .theme {
+      border: 2px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      padding: 0;
+      background: none;
+      cursor: pointer;
+    }
+    .theme.selected { border-color: var(--accent); }
+    .theme .sea { height: 42px; position: relative; }
+    .theme .sea::after {
+      content: '';
+      position: absolute;
+      left: 18%; top: 30%;
+      width: 45%; height: 45%;
+      border-radius: 40% 60% 55% 45%;
+      background: var(--swatch-land);
+    }
+    .theme .label { font-size: 11px; padding: 6px 0; text-align: center; letter-spacing: 0.05em; }
+    /* Trips */
+    .trip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 15px;
+    }
+    .trip small { display: block; opacity: 0.6; }
+    .trip button { flex: none; padding: 8px 14px; font-size: 14px; }
+    /* Sliders */
+    .slider { margin: 14px 0; }
+    .slider label { display: flex; justify-content: space-between; font-size: 13px; opacity: 0.85; margin-bottom: 6px; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+    #status { min-height: 1.3em; margin-top: 14px; font-size: 13px; opacity: 0.75; }
+  </style>
+</head>
+<body>
+  <h1>Remote</h1>
+  <div class="sub">The frame obeys from anywhere on your Wi-Fi · <a href="/upload">add a trip</a></div>
+
+  <h2>Playback</h2>
+  <div class="row">
+    <button id="pause">Pause</button>
+    <button id="resume">Resume</button>
+    <button id="next" class="primary">Next ▸</button>
+  </div>
+
+  <h2>Theme</h2>
+  <div class="themes" id="themes"></div>
+
+  <h2>Order</h2>
+  <div class="row">
+    <button id="order-shuffle">Shuffle</button>
+    <button id="order-chrono">Walk through time</button>
+  </div>
+
+  <h2>Show a trip now</h2>
+  <div id="trips"></div>
+
+  <h2>Timing</h2>
+  <div class="slider">
+    <label><span>Rest on the map between trips</span><span id="dwell-val"></span></label>
+    <input id="dwell" type="range" min="4" max="60" step="1" />
+  </div>
+  <div class="slider">
+    <label><span>Seconds per photo</span><span id="photo-val"></span></label>
+    <input id="photo" type="range" min="3" max="20" step="1" />
+  </div>
+
+  <div id="status"></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/remote.js"></script>
+</body>
+</html>
