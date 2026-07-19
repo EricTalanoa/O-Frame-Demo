@@ -57,7 +57,17 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS collections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    settings TEXT NOT NULL DEFAULT '{}'
+  );
+  CREATE TABLE IF NOT EXISTS collection_trips (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    slug TEXT NOT NULL
+  );
 `);
+try { db.exec('ALTER TABLE trips ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
 db.exec('PRAGMA foreign_keys = ON');
 
 // --------------------------------------------------------- snapshot on disk
@@ -88,8 +98,8 @@ function seedFromSnapshot() {
   }
   for (const t of trips) {
     const { lastInsertRowid: id } =
-      db.prepare('INSERT INTO trips (slug, name, start_date, end_date) VALUES (?, ?, ?, ?)')
-        .run(t.slug, t.name, t.startDate, t.endDate);
+      db.prepare('INSERT INTO trips (slug, name, start_date, end_date, hidden) VALUES (?, ?, ?, ?, ?)')
+        .run(t.slug, t.name, t.startDate, t.endDate, t.hidden ? 1 : 0);
     for (const s of t.stops || []) {
       db.prepare('INSERT INTO stops (trip_id, ord, place, lat, lng) VALUES (?, ?, ?, ?, ?)')
         .run(id, s.order ?? 0, s.place, s.lat, s.lng);
@@ -113,6 +123,7 @@ function listTrips() {
     endDate: t.end_date,
     stops: stops.all(t.id).map((s) => ({ order: s.ord, place: s.place, lat: s.lat, lng: s.lng })),
     photos: photos.all(t.id).map((p) => ({ file: p.file, stop: p.stop_ord, showcase: !!p.showcase })),
+    ...(t.hidden ? { hidden: true } : {}),
   }));
 }
 
@@ -141,6 +152,7 @@ function createTrip(body) {
   const insStop = db.prepare('INSERT INTO stops (trip_id, ord, place, lat, lng) VALUES (?, ?, ?, ?, ?)');
   stops.forEach((s, i) => insStop.run(id, i, String(s.place), s.lat, s.lng));
   writeSnapshot();
+  broadcast({ type: 'tripsChanged' });
   return listTrips().find((t) => t.slug === slug);
 }
 
@@ -149,21 +161,112 @@ function createTrip(body) {
 function updateTrip(slug, body) {
   const trip = db.prepare('SELECT id FROM trips WHERE slug = ?').get(slug);
   if (!trip) throw httpError(404, 'no such trip');
-  const { name, startDate, endDate, stops } = body;
-  if (!name || !startDate || !endDate) throw httpError(400, 'name, startDate and endDate are required');
-  if (!Array.isArray(stops) || !stops.length) throw httpError(400, 'at least one stop is required');
-  for (const s of stops) {
-    if (!s.place || typeof s.lat !== 'number' || typeof s.lng !== 'number') {
-      throw httpError(400, 'each stop needs place, lat and lng');
-    }
+  const { name, startDate, endDate, stops, hidden } = body;
+  if (name !== undefined || startDate !== undefined || endDate !== undefined) {
+    if (!name || !startDate || !endDate) throw httpError(400, 'name, startDate and endDate are required together');
+    db.prepare('UPDATE trips SET name = ?, start_date = ?, end_date = ? WHERE id = ?')
+      .run(String(name), String(startDate), String(endDate), trip.id);
   }
-  db.prepare('UPDATE trips SET name = ?, start_date = ?, end_date = ? WHERE id = ?')
-    .run(String(name), String(startDate), String(endDate), trip.id);
-  db.prepare('DELETE FROM stops WHERE trip_id = ?').run(trip.id);
-  const insStop = db.prepare('INSERT INTO stops (trip_id, ord, place, lat, lng) VALUES (?, ?, ?, ?, ?)');
-  stops.forEach((s, i) => insStop.run(trip.id, i, String(s.place), s.lat, s.lng));
+  if (stops !== undefined) {
+    if (!Array.isArray(stops) || !stops.length) throw httpError(400, 'at least one stop is required');
+    for (const s of stops) {
+      if (!s.place || typeof s.lat !== 'number' || typeof s.lng !== 'number') {
+        throw httpError(400, 'each stop needs place, lat and lng');
+      }
+    }
+    db.prepare('DELETE FROM stops WHERE trip_id = ?').run(trip.id);
+    const insStop = db.prepare('INSERT INTO stops (trip_id, ord, place, lat, lng) VALUES (?, ?, ?, ?, ?)');
+    stops.forEach((s, i) => insStop.run(trip.id, i, String(s.place), s.lat, s.lng));
+  }
+  if (hidden !== undefined) {
+    db.prepare('UPDATE trips SET hidden = ? WHERE id = ?').run(hidden ? 1 : 0, trip.id);
+  }
   writeSnapshot();
+  broadcast({ type: 'tripsChanged' });
   return listTrips().find((t) => t.slug === slug);
+}
+
+// What the frame shows: hidden trips out, and when a collection is active,
+// only its trips.
+function visibleTrips() {
+  let trips = listTrips().filter((t) => !t.hidden);
+  const activeId = +(getSettings().activeCollection || 0);
+  if (activeId) {
+    const rows = db.prepare('SELECT slug FROM collection_trips WHERE collection_id = ?').all(activeId);
+    const inSet = new Set(rows.map((r) => r.slug));
+    trips = trips.filter((t) => inSet.has(t.slug));
+  }
+  return trips;
+}
+
+function deletePhoto(slug, file) {
+  const trip = db.prepare('SELECT id FROM trips WHERE slug = ?').get(slug);
+  if (!trip) throw httpError(404, 'no such trip');
+  const safe = path.basename(file || '');
+  const gone = db.prepare('DELETE FROM photos WHERE trip_id = ? AND file = ?').run(trip.id, safe);
+  if (!gone.changes) throw httpError(404, 'no such photo');
+  try { fs.unlinkSync(path.join(ROOT, 'photos', slug, safe)); } catch { /* already gone */ }
+  writeSnapshot();
+  broadcast({ type: 'tripsChanged' });
+}
+
+function setPhotoShowcase(slug, file, showcase) {
+  const trip = db.prepare('SELECT id FROM trips WHERE slug = ?').get(slug);
+  if (!trip) throw httpError(404, 'no such trip');
+  const r = db.prepare('UPDATE photos SET showcase = ? WHERE trip_id = ? AND file = ?')
+    .run(showcase ? 1 : 0, trip.id, path.basename(file || ''));
+  if (!r.changes) throw httpError(404, 'no such photo');
+  writeSnapshot();
+  broadcast({ type: 'tripsChanged' });
+}
+
+// ------------------------------------------------------------- collections
+
+function listCollections() {
+  const rows = db.prepare('SELECT * FROM collections ORDER BY name').all();
+  const slugStmt = db.prepare('SELECT slug FROM collection_trips WHERE collection_id = ?');
+  return rows.map((c) => ({
+    id: c.id,
+    name: c.name,
+    settings: JSON.parse(c.settings || '{}'),
+    slugs: slugStmt.all(c.id).map((r) => r.slug),
+  }));
+}
+
+function createCollection(body) {
+  const { name, slugs, settings } = body;
+  if (!name) throw httpError(400, 'name is required');
+  if (!Array.isArray(slugs) || !slugs.length) throw httpError(400, 'pick at least one trip');
+  const { lastInsertRowid: id } = db.prepare('INSERT INTO collections (name, settings) VALUES (?, ?)')
+    .run(String(name), JSON.stringify(settings || {}));
+  const ins = db.prepare('INSERT INTO collection_trips (collection_id, slug) VALUES (?, ?)');
+  for (const s of slugs) ins.run(id, String(s));
+  return listCollections().find((c) => c.id === Number(id));
+}
+
+function deleteCollection(id) {
+  if (+(getSettings().activeCollection || 0) === id) putSetting('activeCollection', '');
+  const r = db.prepare('DELETE FROM collections WHERE id = ?').run(id);
+  if (!r.changes) throw httpError(404, 'no such collection');
+}
+
+// Activating a collection also applies its paired settings (theme, order,
+// timings) and tells frames to re-pull their trip list.
+function activateCollection(id) {
+  if (!id) {
+    putSetting('activeCollection', '');
+  } else {
+    const col = listCollections().find((c) => c.id === Number(id));
+    if (!col) throw httpError(404, 'no such collection');
+    putSetting('activeCollection', col.id);
+    for (const key of SETTING_KEYS) {
+      if (col.settings[key] !== undefined) putSetting(key, col.settings[key]);
+    }
+    broadcast({ type: 'settings', ...col.settings });
+    if (col.settings.theme) broadcast({ type: 'theme', name: col.settings.theme });
+    if (col.settings.orderMode) broadcast({ type: 'order', mode: col.settings.orderMode });
+  }
+  broadcast({ type: 'tripsChanged' });
 }
 
 function deleteTrip(slug) {
@@ -171,6 +274,7 @@ function deleteTrip(slug) {
   if (!trip) throw httpError(404, 'no such trip');
   db.prepare('DELETE FROM trips WHERE id = ?').run(trip.id);
   writeSnapshot();
+  broadcast({ type: 'tripsChanged' });
   // photos on disk are kept — they're the user's files
 }
 
@@ -191,6 +295,7 @@ function addPhoto(slug, name, buffer) {
   db.prepare('INSERT INTO photos (trip_id, stop_ord, file, showcase) VALUES (?, 0, ?, 1)')
     .run(trip.id, file);
   writeSnapshot();
+  broadcast({ type: 'tripsChanged' });
   return { file };
 }
 
@@ -282,7 +387,8 @@ function readBody(req, limitBytes) {
 
 async function handleApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/trips') {
-    return sendJSON(res, 200, { trips: listTrips() });
+    const trips = url.searchParams.get('visible') ? visibleTrips() : listTrips();
+    return sendJSON(res, 200, { trips });
   }
   if (req.method === 'POST' && url.pathname === '/api/trips') {
     const body = JSON.parse((await readBody(req, 1e6)).toString('utf8') || '{}');
@@ -314,6 +420,34 @@ async function handleApi(req, res, url) {
     sseClients.add(res);
     req.on('close', () => sseClients.delete(res));
     return; // stream stays open
+  }
+  if (req.method === 'DELETE' && url.pathname === '/api/photos') {
+    deletePhoto(url.searchParams.get('slug'), url.searchParams.get('file'));
+    return sendJSON(res, 200, { ok: true });
+  }
+  if (req.method === 'PATCH' && url.pathname === '/api/photos') {
+    const body = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}');
+    setPhotoShowcase(body.slug, body.file, body.showcase);
+    return sendJSON(res, 200, { ok: true });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/collections') {
+    return sendJSON(res, 200, {
+      collections: listCollections(),
+      active: +(getSettings().activeCollection || 0) || null,
+    });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/collections') {
+    const body = JSON.parse((await readBody(req, 1e6)).toString('utf8') || '{}');
+    return sendJSON(res, 201, { collection: createCollection(body) });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/collections/activate') {
+    const body = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}');
+    activateCollection(body.id ? Number(body.id) : null);
+    return sendJSON(res, 200, { ok: true });
+  }
+  if (req.method === 'DELETE' && /^\/api\/collections\/\d+$/.test(url.pathname)) {
+    deleteCollection(Number(url.pathname.split('/').pop()));
+    return sendJSON(res, 200, { ok: true });
   }
   if (req.method === 'POST' && url.pathname === '/api/photos') {
     const slug = url.searchParams.get('slug');

@@ -30,8 +30,13 @@ cycle; the choice is remembered.
 ## The remote
 
 Open http://localhost:3000/remote on your phone: pick the theme, pause or
-skip, switch shuffle vs. "walk through time", fly to any trip, and tune the
-timings — the frame reacts live, and settings stick across restarts.
+skip, zoom out, switch to "just the map" (no slideshows), fly to any trip,
+hide trips without deleting them, group trips into collections (each keeps
+its own theme and timing, activate one to show only those trips), and tune
+the timings — the frame reacts live, and settings stick across restarts.
+
+Editing a trip on the upload page also shows its photos: bench one from the
+slideshow or remove it entirely.
 
 If every trip is in one region, the frame rests zoomed to that region
 instead of the whole world; it pulls back automatically once trips span the

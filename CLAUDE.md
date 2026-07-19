@@ -76,6 +76,18 @@ Built and verified so far:
   - Deck cards size themselves to each photo's aspect ratio (portraits are no
     longer cropped to a landscape card).
 
+- v0.5:
+  - State/province lines: promoted to the resting zoom in the online style,
+    and US state borders bundled for the offline map (`data/us-states-geo.js`).
+  - Remote gains: Zoom out, "Just the map" mode (no slideshows until turned
+    off), hide/unhide per trip (hidden trips keep their data but leave the
+    frame), and collections — named trip groups with paired settings
+    (theme/order/timings) that apply when activated. Active collection
+    filters the frame server-side via `/api/trips?visible=1`.
+  - Upload page edit mode: photo thumbnail grid — toggle a photo out of the
+    slideshow (showcase flag) or remove it entirely.
+  - The frame reacts to any trip/collection change instantly via a
+    `tripsChanged` SSE event (no more 2-minute wait).
 - v0.4:
   - Phone remote at `/remote`: theme picker, pause/resume/next, order mode,
     show-a-trip-now, and timing sliders. Commands go over `POST /api/command`
