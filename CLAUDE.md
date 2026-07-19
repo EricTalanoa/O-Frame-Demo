@@ -49,7 +49,7 @@ A static web app, no backend:
 - **Local-first.** Everything must work offline with local files. When a backend
   arrives (Phase 2) it's Node or FastAPI + SQLite on the same box.
 
-## Status (v0.2)
+## Status (v0.3)
 
 Built and verified so far:
 
@@ -60,9 +60,21 @@ Built and verified so far:
   - The slideshow is a photo deck: the current card takes most of the screen
     with the previous/next cards peeking in from the sides — swipe, click a
     peeking card, or use arrow keys.
-- The first Phase 2 slice: `server.js` (zero-dep Node + node:sqlite, Node 22+)
-  with a trips API and a phone upload page at `/upload`. The frame merges
-  uploaded trips with the bundled samples and re-checks periodically.
+- Phase 2 upload slice: `server.js` (zero-dep Node + node:sqlite, Node 22+)
+  with a trips API and a phone upload page at `/upload`. Photos are converted
+  and resized client-side (HEIC-safe) before upload.
+- v0.3 (owner feedback):
+  - Sample/demo trips removed — real trips come from the upload page; the
+    wishlist pins remain in `js/trips.js`.
+  - Uploaded trips are durable: the server mirrors the DB to
+    `data/uploaded-trips.js` on every change and re-seeds an empty DB from it;
+    that file + `photos/` are tracked, so committing them saves the owner's
+    trips. The frame loads the snapshot even with no server running.
+  - Themes: four palettes in `js/config.js` (ink, atlas, midnight, porcelain)
+    applied to the map (both remote and offline styles), pins, deck, and
+    caption. `t` cycles; choice persists in localStorage.
+  - Deck cards size themselves to each photo's aspect ratio (portraits are no
+    longer cropped to a landscape card).
 
 ## Roadmap after v0.1
 
@@ -94,8 +106,10 @@ Built and verified so far:
 - Frame only: `npx serve` or open `index.html` directly — everything loads as
   plain `<script>` tags, so `file://` works too. No build step.
 - Keyboard (optional, nothing requires it): `space` pause/resume, `n` skip
-  ahead, `←`/`→` move through the photo deck, `o` toggle
+  ahead, `←`/`→` move through the photo deck, `t` cycle theme, `o` toggle
   shuffle/chronological, `f` fullscreen.
+- Saving trips: after uploading from the phone, commit `data/uploaded-trips.js`
+  and `photos/` — that snapshot re-seeds a fresh clone's DB automatically.
 - MapLibre GL JS is vendored in `vendor/`. Online it loads the OpenFreeMap
   Positron style and mutes it toward the palette in `js/config.js`; offline it
   falls back to the bundled Natural Earth world map in `data/world-geo.js`.

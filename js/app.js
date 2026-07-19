@@ -1,4 +1,4 @@
-/* O-Frame v0.2 — interactive ambient map + photo-deck slideshow.
+/* O-Frame v0.3 — interactive ambient map + photo-deck slideshow + themes.
  *
  * Flow: world view (dwell) -> flyTo a trip pin -> photo deck of that trip's
  * showcase photos (current card dominant, prev/next peeking at the sides) ->
@@ -7,11 +7,12 @@
  * Interaction: pan/zoom the map freely (the loop holds and resumes after
  * idle), click a pin to show that trip now, swipe / click the peeking cards /
  * arrow keys to move through photos. Keyboard: space = pause/resume,
- * n = skip ahead, o = toggle order mode, f = fullscreen.
+ * n = skip ahead, t = cycle theme, o = toggle order mode, f = fullscreen.
  *
- * With `node server.js` running, trips uploaded from the phone are merged in
- * and re-checked periodically; without a server the bundled js/trips.js data
- * is used alone (file:// still works).
+ * Trips come from three places, merged by slug: hand-written js/trips.js,
+ * the committed snapshot data/uploaded-trips.js, and (when `node server.js`
+ * is running) the live /api/trips — so the frame works with or without the
+ * server, file:// included.
  */
 (function () {
   'use strict';
@@ -19,7 +20,16 @@
   const cfg = window.CONFIG;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  let trips = window.TRIPS.slice();
+  const THEME_KEY = 'oframe-theme';
+  const themeNames = Object.keys(cfg.themes);
+  const savedTheme = localStorage.getItem(THEME_KEY);
+  if (savedTheme && cfg.themes[savedTheme]) cfg.theme = savedTheme;
+
+  function bundledTrips() {
+    return mergeTrips(window.TRIPS || [], window.UPLOADED_TRIPS || []);
+  }
+
+  let trips = bundledTrips();
 
   const el = {
     slideshow: document.getElementById('slideshow'),
@@ -30,33 +40,48 @@
   };
   const root = document.documentElement.style;
   root.setProperty('--fade', cfg.crossfadeSeconds + 's');
-  root.setProperty('--deck-card-w', cfg.deck.cardWidthVw + 'vw');
+  root.setProperty('--deck-peek', cfg.deck.peekVw + 'vw');
   root.setProperty('--deck-side-scale', cfg.deck.sideScale);
   root.setProperty('--deck-kb-scale', cfg.deck.kenBurnsScale);
-  // Side cards sit just inside the viewport edge: half the viewport plus half
-  // a scaled card, pulled back in by the configured peek.
-  root.setProperty('--deck-shift',
-    50 + (cfg.deck.cardWidthVw / 2) * cfg.deck.sideScale - cfg.deck.peekVw + 'vw');
   root.setProperty('--kb-duration', cfg.photoSeconds + cfg.crossfadeSeconds + 's');
+
+  // ------------------------------------------------------------------ themes
+
+  function applyThemeVars() {
+    const p = cfg.palette;
+    root.setProperty('--t-ocean', p.ocean);
+    root.setProperty('--t-card', p.card);
+    root.setProperty('--t-text', p.text);
+    root.setProperty('--t-backdrop', p.backdrop);
+    // Light text needs a dark glow to stay readable over pale maps; porcelain
+    // is the only theme with dark text (and so a light glow).
+    const lightText = cfg.theme !== 'porcelain';
+    root.setProperty('--t-text-glow', lightText ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.55)');
+    const darkMap = cfg.theme === 'ink' || cfg.theme === 'midnight';
+    root.setProperty('--t-vignette', darkMap ? 'rgba(10,14,18,0.32)' : 'rgba(90,88,80,0.22)');
+  }
 
   // ---------------------------------------------------------------- map style
 
-  // Pull a color toward the muted parchment tone: desaturate, then warm-tint.
+  // Pull a color toward the theme's muted tone: desaturate, warm-tint, and
+  // (for dark themes) darken.
   function muteColor(str) {
     const rgba = parseColor(str);
     if (!rgba) return str;
     let [r, g, b, a] = rgba;
+    const p = cfg.palette;
     const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    const d = cfg.palette.muteMix;
+    const d = p.muteMix;
     r += (lum - r) * d;
     g += (lum - g) * d;
     b += (lum - b) * d;
     const tint = 0.22;
-    const [tr, tg, tb] = cfg.palette.muteTone;
+    const [tr, tg, tb] = p.muteTone;
     r *= 1 - tint + (tint * tr) / 255;
     g *= 1 - tint + (tint * tg) / 255;
     b *= 1 - tint + (tint * tb) / 255;
-    return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${a})`;
+    r *= p.darken; g *= p.darken; b *= p.darken;
+    return `rgba(${Math.round(Math.min(255, r))},${Math.round(Math.min(255, g))},${Math.round(Math.min(255, b))},${a})`;
   }
 
   function parseColor(str) {
@@ -106,13 +131,31 @@
     return v;
   }
 
-  function muteStyle(style) {
-    // Wall art, not an atlas: drop the label layers (all text/icon symbols)
-    // unless labels are explicitly enabled.
+  function isWaterLayer(layer) {
+    const hay = `${layer.id} ${layer['source-layer'] || ''}`.toLowerCase();
+    return /water|ocean|marine/.test(hay);
+  }
+
+  // Recolor the remote vector style to the active theme: water becomes the
+  // theme ocean, everything else is muted toward the theme tone, labels drop.
+  function themedRemoteStyle(raw) {
+    const style = JSON.parse(JSON.stringify(raw));
+    const p = cfg.palette;
     if (!cfg.showLabels) {
       style.layers = (style.layers || []).filter((l) => l.type !== 'symbol');
     }
     for (const layer of style.layers || []) {
+      if (isWaterLayer(layer)) {
+        layer.paint = layer.paint || {};
+        for (const key of Object.keys(layer.paint)) {
+          if (key.endsWith('-color')) layer.paint[key] = p.ocean;
+        }
+        continue;
+      }
+      if (layer.type === 'background') {
+        layer.paint = { ...layer.paint, 'background-color': p.land };
+        continue;
+      }
       for (const section of ['paint', 'layout']) {
         const props = layer[section];
         if (!props) continue;
@@ -124,8 +167,8 @@
     return style;
   }
 
-  // Offline / local-first fallback: muted world polygons from the bundled
-  // Natural Earth GeoJSON. No network, no glyphs, no tiles.
+  // Offline / local-first fallback: themed world polygons from the bundled
+  // Natural Earth GeoJSON, with a soft coast glow. No network, no tiles.
   function fallbackStyle() {
     const p = cfg.palette;
     return {
@@ -135,6 +178,10 @@
       },
       layers: [
         { id: 'bg', type: 'background', paint: { 'background-color': p.ocean } },
+        {
+          id: 'coast-glow', type: 'line', source: 'world',
+          paint: { 'line-color': p.coast, 'line-width': 5, 'line-blur': 8, 'line-opacity': 0.35 },
+        },
         { id: 'land', type: 'fill', source: 'world', paint: { 'fill-color': p.land } },
         {
           id: 'borders', type: 'line', source: 'world',
@@ -145,16 +192,29 @@
   }
 
   let usingFallbackStyle = false;
+  let rawRemoteStyle = null;
 
   async function loadStyle() {
     try {
       const res = await fetch(cfg.styleUrl);
       if (!res.ok) throw new Error('style fetch failed: ' + res.status);
-      return muteStyle(await res.json());
+      rawRemoteStyle = await res.json();
+      return themedRemoteStyle(rawRemoteStyle);
     } catch (err) {
       console.warn('[o-frame] remote style unavailable, using offline fallback —', err.message);
       usingFallbackStyle = true;
       return fallbackStyle();
+    }
+  }
+
+  function applyTheme(name) {
+    cfg.theme = name;
+    localStorage.setItem(THEME_KEY, name);
+    applyThemeVars();
+    if (map) {
+      map.setStyle(usingFallbackStyle ? fallbackStyle() : themedRemoteStyle(rawRemoteStyle), { diff: false });
+      buildMarkers();
+      if (state.lastSlug && state.activeMarkerEl !== null) setActivePin(state.lastSlug);
     }
   }
 
@@ -171,7 +231,6 @@
     forcedSlug: null,     // pin click: show this trip next
     inSlideshow: false,
     deckIndex: 0,
-    deckLength: 0,
     activeMarkerEl: null,
     tripsDirty: false,
   };
@@ -277,14 +336,30 @@
 
   let deckCards = [];
 
+  // Size a card to its photo's aspect ratio, capped by the deck config box —
+  // portraits stay portrait instead of being cropped to a landscape card.
+  function sizeCard(card, img) {
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const maxW = (window.innerWidth * cfg.deck.cardWidthVw) / 100;
+    const maxH = (window.innerHeight * cfg.deck.cardHeightVh) / 100;
+    const ar = img.naturalWidth / img.naturalHeight;
+    let w = maxW;
+    let h = w / ar;
+    if (h > maxH) { h = maxH; w = h * ar; }
+    card.style.width = Math.round(w) + 'px';
+    card.style.height = Math.round(h) + 'px';
+  }
+
   function buildDeck(trip, photos) {
     el.slideshow.textContent = '';
-    deckCards = photos.map((photo, i) => {
+    deckCards = photos.map((photo) => {
       const card = document.createElement('div');
       card.className = 'card card--off-right';
       const img = document.createElement('img');
       img.src = `photos/${trip.slug}/${photo.file}`;
       img.alt = '';
+      if (img.complete) sizeCard(card, img);
+      else img.addEventListener('load', () => sizeCard(card, img));
       card.appendChild(img);
       card.addEventListener('click', () => {
         if (card.classList.contains('card--prev')) deckGo(-1);
@@ -294,6 +369,13 @@
       return card;
     });
   }
+
+  window.addEventListener('resize', () => {
+    for (const card of deckCards) {
+      const img = card.querySelector('img');
+      if (img) sizeCard(card, img);
+    }
+  });
 
   function renderDeck(index) {
     deckCards.forEach((card, i) => {
@@ -321,7 +403,6 @@
     if (!photos.length) return;
     buildDeck(trip, photos);
     state.inSlideshow = true;
-    state.deckLength = photos.length;
     state.deckIndex = 0;
     el.slideshow.classList.add('visible');
     while (state.deckIndex < photos.length) {
@@ -362,16 +443,16 @@
     return (await res.json()).trips || [];
   }
 
-  // Server trips override bundled samples with the same slug, else append.
-  function mergeTrips(bundled, server) {
-    const bySlug = new Map(bundled.map((t) => [t.slug, t]));
-    for (const t of server) bySlug.set(t.slug, t);
+  // Later sources override earlier ones with the same slug, else append.
+  function mergeTrips(base, extra) {
+    const bySlug = new Map(base.map((t) => [t.slug, t]));
+    for (const t of extra) bySlug.set(t.slug, t);
     return [...bySlug.values()];
   }
 
   async function refreshTrips() {
     try {
-      const merged = mergeTrips(window.TRIPS, await fetchServerTrips());
+      const merged = mergeTrips(bundledTrips(), await fetchServerTrips());
       if (JSON.stringify(merged) !== JSON.stringify(trips)) {
         trips = merged;
         state.tripsDirty = true;
@@ -454,6 +535,7 @@
         rebuildQueue();
         toast('Trips updated');
       }
+      if (!trips.length) { await wait(cfg.worldDwellSeconds); continue; }
       if (!state.forcedSlug) await wait(cfg.worldDwellSeconds);
       const trip = nextTrip();
       const stop = trip.stops[0]; // fly to the first stop
@@ -489,6 +571,10 @@
       if (state.inSlideshow) deckGo(1);
     } else if (e.key === 'ArrowLeft') {
       if (state.inSlideshow) deckGo(-1);
+    } else if (e.key === 't') {
+      const next = themeNames[(themeNames.indexOf(cfg.theme) + 1) % themeNames.length];
+      applyTheme(next);
+      toast('Theme: ' + next[0].toUpperCase() + next.slice(1));
     } else if (e.key === 'o') {
       state.orderMode = state.orderMode === 'shuffle' ? 'chronological' : 'shuffle';
       rebuildQueue();
@@ -502,8 +588,9 @@
   // -------------------------------------------------------------------- boot
 
   async function boot() {
+    applyThemeVars();
     try {
-      trips = mergeTrips(window.TRIPS, await fetchServerTrips());
+      trips = mergeTrips(bundledTrips(), await fetchServerTrips());
     } catch {
       /* no server running — bundled data only */
     }
@@ -531,7 +618,7 @@
     setInterval(refreshTrips, cfg.tripsRefreshSeconds * 1000);
 
     map.once('load', () => {
-      window.__oframe = { map, state }; // hook for automated smoke tests
+      window.__oframe = { map, state, applyTheme }; // hook for automated smoke tests
       window.__oframeReady = true;
       ambientLoop();
     });

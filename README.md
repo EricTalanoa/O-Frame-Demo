@@ -22,16 +22,24 @@ Frame-only mode also works with any static server (`npx serve`) or by opening
 `index.html` directly — no build step.
 
 Optional keys: `space` pause · `n` skip ahead · `←`/`→` move through photos ·
-`o` toggle shuffle vs. "walk through time" · `f` fullscreen.
+`t` cycle theme · `o` toggle shuffle vs. "walk through time" · `f` fullscreen.
+
+Four themes are built in — ink, atlas, midnight, porcelain — press `t` to
+cycle; the choice is remembered.
 
 ## Add your own trips
 
 Open http://localhost:3000/upload on your phone (or laptop): name the trip,
-tap the map to drop the pin, pick photos, done — it shows up on the frame.
-Uploads are stored in `data/oframe.db` + `photos/<slug>/`.
+tap the map to drop the pin, pick photos straight from the camera roll
+(HEIC is fine — photos are converted and resized before upload), done — it
+shows up on the frame.
 
-Or edit `js/trips.js` by hand and drop photos into `photos/<trip-slug>/`.
-Timings and behavior live in `js/config.js`. The bundled sample trips use
-generated placeholder art.
+**To keep your trips**, commit `data/uploaded-trips.js` and `photos/` — the
+server keeps that snapshot in sync with everything you upload, the frame can
+run from it without the server, and a fresh clone re-seeds its database
+from it.
+
+Or edit `js/trips.js` by hand (wishlist pins live there too). Timings,
+behavior, and themes live in `js/config.js`.
 
 See `CLAUDE.md` for the project vision, data model, and roadmap.
