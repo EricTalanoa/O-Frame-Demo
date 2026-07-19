@@ -9,6 +9,10 @@
  *   PATCH  /api/trips/<slug>           <- same shape; updates details/stops, slug stays
  *   POST   /api/photos?slug=&name=     <- raw image bytes; saved to photos/<slug>/
  *   DELETE /api/trips/<slug>
+ *   GET    /api/settings               -> { settings: {theme, orderMode, ...} }
+ *   POST   /api/command                <- { type, ... }; persisted if a setting,
+ *                                         then broadcast to frames via SSE
+ *   GET    /api/events                 -> SSE stream of commands (the frame listens)
  *
  * Run: node server.js   (http://localhost:3000, PORT env to change)
  * Uploaded photos land in photos/<slug>/ next to the sample ones; trip
@@ -48,6 +52,10 @@ db.exec(`
     stop_ord INTEGER NOT NULL DEFAULT 0,
     file TEXT NOT NULL,
     showcase INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
   );
 `);
 db.exec('PRAGMA foreign_keys = ON');
@@ -186,6 +194,45 @@ function addPhoto(slug, name, buffer) {
   return { file };
 }
 
+// -------------------------------------------------- settings + command relay
+// The phone remote (/remote) posts commands; frames listen on an SSE stream.
+// Commands that are settings (theme, order mode, timings) are persisted so
+// the frame picks them up again after a restart.
+
+const SETTING_KEYS = ['theme', 'orderMode', 'worldDwellSeconds', 'photoSeconds'];
+
+function getSettings() {
+  const out = {};
+  for (const row of db.prepare('SELECT key, value FROM settings').all()) out[row.key] = row.value;
+  return out;
+}
+
+function putSetting(key, value) {
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, String(value));
+}
+
+const sseClients = new Set();
+
+function broadcast(obj) {
+  const msg = `data: ${JSON.stringify(obj)}\n\n`;
+  for (const res of sseClients) res.write(msg);
+}
+
+setInterval(() => {
+  for (const res of sseClients) res.write(': ping\n\n');
+}, 30000).unref();
+
+function handleCommand(cmd) {
+  if (!cmd || typeof cmd.type !== 'string') throw httpError(400, 'command needs a type');
+  if (cmd.type === 'theme' && cmd.name) putSetting('theme', cmd.name);
+  if (cmd.type === 'order' && cmd.mode) putSetting('orderMode', cmd.mode);
+  if (cmd.type === 'settings') {
+    for (const key of SETTING_KEYS) if (cmd[key] !== undefined) putSetting(key, cmd[key]);
+  }
+  broadcast(cmd);
+}
+
 // -------------------------------------------------------------------- server
 
 function httpError(status, message) {
@@ -249,6 +296,25 @@ async function handleApi(req, res, url) {
     deleteTrip(url.pathname.split('/').pop());
     return sendJSON(res, 200, { ok: true });
   }
+  if (req.method === 'GET' && url.pathname === '/api/settings') {
+    return sendJSON(res, 200, { settings: getSettings() });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/command') {
+    const cmd = JSON.parse((await readBody(req, 1e5)).toString('utf8') || '{}');
+    handleCommand(cmd);
+    return sendJSON(res, 200, { ok: true });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/events') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    res.write(': connected\n\n');
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
+    return; // stream stays open
+  }
   if (req.method === 'POST' && url.pathname === '/api/photos') {
     const slug = url.searchParams.get('slug');
     const name = url.searchParams.get('name');
@@ -263,6 +329,7 @@ function serveStatic(req, res, url) {
   let p = decodeURIComponent(url.pathname);
   if (p === '/') p = '/index.html';
   if (p === '/upload') p = '/upload.html';
+  if (p === '/remote') p = '/remote.html';
   const file = path.join(ROOT, p);
   if (!file.startsWith(ROOT + path.sep)) return sendJSON(res, 403, { error: 'forbidden' });
   fs.readFile(file, (err, data) => {

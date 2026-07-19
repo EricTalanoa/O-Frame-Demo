@@ -22,6 +22,7 @@ window.CONFIG = {
 
   // Camera
   world: { center: [12, 22], zoom: 1.6 },
+  homeMaxZoom: 5,          // deepest the resting view zooms when trips cluster in one region
   flyToZoom: 10.5,
   fallbackFlyToZoom: 5.5, // shallower dive when on the offline world map (no street detail)
   flySpeed: 0.45,          // MapLibre flyTo speed — lower = slower, more cinematic

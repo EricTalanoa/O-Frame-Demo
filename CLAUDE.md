@@ -76,11 +76,21 @@ Built and verified so far:
   - Deck cards size themselves to each photo's aspect ratio (portraits are no
     longer cropped to a landscape card).
 
+- v0.4:
+  - Phone remote at `/remote`: theme picker, pause/resume/next, order mode,
+    show-a-trip-now, and timing sliders. Commands go over `POST /api/command`
+    and reach the frame live via SSE (`/api/events`); settings persist in the
+    DB and the frame re-applies them on boot.
+  - Trip editing from the upload page (`PATCH /api/trips/<slug>`) and a
+    labeled street-level picker map when online.
+  - Adaptive home view: when all trips cluster in one region, the frame rests
+    zoomed to that region (`homeMaxZoom` caps it); global spread falls back
+    to the world view.
+
 ## Roadmap after v0.1
 
-- Phase 2: small server (SQLite) — **trip upload done, see Status**; still to
-  come: phone remote controls (fly-to buttons, next/pause), settings (dwell
-  times, order mode).
+- Phase 2: small server (SQLite) — **trip upload, phone remote, and settings
+  done, see Status**.
 - Phase 3: EXIF GPS+time clustering to propose trips ("Looks like Portugal,
   May 2019 — add it?"), Walk Through Time film mode with animated routes,
   anniversary bias ("this week in past years").
@@ -99,10 +109,11 @@ Built and verified so far:
 
 ## Commands
 
-- Full demo (frame + upload API): `node server.js` (Node 22+, zero
+- Full demo (frame + upload API + remote): `node server.js` (Node 22+, zero
   dependencies) then open http://localhost:3000 — upload page at
-  http://localhost:3000/upload. Trip metadata lands in `data/oframe.db`
-  (gitignored), photos in `photos/<slug>/`.
+  http://localhost:3000/upload, phone remote at http://localhost:3000/remote.
+  Trip metadata lands in `data/oframe.db` (gitignored), photos in
+  `photos/<slug>/`.
 - Frame only: `npx serve` or open `index.html` directly — everything loads as
   plain `<script>` tags, so `file://` works too. No build step.
 - Keyboard (optional, nothing requires it): `space` pause/resume, `n` skip
