@@ -2,4 +2,413 @@
 // Snapshot of the trips uploaded from the phone. The server rewrites this
 // file on every change; committing it (plus photos/) saves your trips into
 // the repo, and a fresh clone re-seeds the database from it.
-window.UPLOADED_TRIPS = [];
+window.UPLOADED_TRIPS = [
+  {
+    "slug": "eira-british-columbia-tour-2019",
+    "name": "EIRA British Columbia Tour",
+    "startDate": "2019-07-11",
+    "endDate": "2019-07-13",
+    "stops": [
+      {
+        "order": 0,
+        "place": "Shawinigan Lake, British Columbia",
+        "lat": 48.6573,
+        "lng": -123.639
+      }
+    ],
+    "photos": [
+      {
+        "file": "IMG_3858.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3861.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3867.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_4975.jpg",
+        "stop": 0,
+        "showcase": true
+      }
+    ]
+  },
+  {
+    "slug": "2023-ncr-all-stars-2024",
+    "name": "2023 NCR All-Stars",
+    "startDate": "2024-01-06",
+    "endDate": "2024-01-10",
+    "stops": [
+      {
+        "order": 0,
+        "place": "Round Rock, Texas",
+        "lat": 30.5452,
+        "lng": -97.6308
+      }
+    ],
+    "photos": [
+      {
+        "file": "2943e459-0347-4d1b-9ad8-8023af3b8598.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9245.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9246.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9247.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9248.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9249.jpg",
+        "stop": 0,
+        "showcase": true
+      }
+    ]
+  },
+  {
+    "slug": "outdoor-program-paintball-2024",
+    "name": "Outdoor Program Paintball",
+    "startDate": "2024-05-18",
+    "endDate": "2024-05-18",
+    "stops": [
+      {
+        "order": 0,
+        "place": "Medford, Oregon",
+        "lat": 42.4239,
+        "lng": -122.8407
+      }
+    ],
+    "photos": [
+      {
+        "file": "IMG_9547.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9548.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9550.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9556.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9557.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9561.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9568.jpg",
+        "stop": 0,
+        "showcase": true
+      }
+    ]
+  },
+  {
+    "slug": "2024-nai-7s-2024",
+    "name": "2024 NAI 7s",
+    "startDate": "2024-07-25",
+    "endDate": "2024-07-28",
+    "stops": [
+      {
+        "order": 0,
+        "place": "Salt Lake City, Utah",
+        "lat": 40.8122,
+        "lng": -111.9645
+      }
+    ],
+    "photos": [
+      {
+        "file": "IMG_0098.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_9522.jpg",
+        "stop": 0,
+        "showcase": true
+      }
+    ]
+  },
+  {
+    "slug": "2025-ncr-all-stars-2025",
+    "name": "2025 NCR All-Stars",
+    "startDate": "2025-01-16",
+    "endDate": "2025-01-19",
+    "stops": [
+      {
+        "order": 0,
+        "place": "Atlanta, Georgia",
+        "lat": 33.8914,
+        "lng": -84.2553
+      }
+    ],
+    "photos": [
+      {
+        "file": "ASR_20250119_NCR_MENS_ALL_STAR_TEAMS_DW-1.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "GUZ-NCR-073.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "GUZ-NCR-084.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "GUZ-NCR-108.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_0533.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_0543.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_0557.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_0561.jpg",
+        "stop": 0,
+        "showcase": true
+      }
+    ]
+  },
+  {
+    "slug": "jon-pardi-in-bend-2025",
+    "name": "Jon Pardi In Bend",
+    "startDate": "2025-06-20",
+    "endDate": "2025-06-22",
+    "stops": [
+      {
+        "order": 0,
+        "place": "Bend, Oregon",
+        "lat": 44.047,
+        "lng": -121.318
+      }
+    ],
+    "photos": [
+      {
+        "file": "IMG_0385.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_0721.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_0723.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_0725.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3389.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3392.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3401.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3408.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3420.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3433.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_3439.jpg",
+        "stop": 0,
+        "showcase": true
+      }
+    ]
+  },
+  {
+    "slug": "eric-s-graduation-2026",
+    "name": "Eric’s Graduation",
+    "startDate": "2026-06-12",
+    "endDate": "2026-06-14",
+    "stops": [
+      {
+        "order": 0,
+        "place": "Klamath Falls, Oregon",
+        "lat": 42.2565,
+        "lng": -121.7855
+      }
+    ],
+    "photos": [
+      {
+        "file": "IMG_1312.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_1649.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_1652.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_6207.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_7477.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_8289.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_8333.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_8334.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_8335.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_8337.jpg",
+        "stop": 0,
+        "showcase": true
+      }
+    ]
+  },
+  {
+    "slug": "lake-day-2026",
+    "name": "Lake Day",
+    "startDate": "2026-07-11",
+    "endDate": "2026-07-11",
+    "stops": [
+      {
+        "order": 0,
+        "place": "Lake of the Woods, Oregon",
+        "lat": 42.1908,
+        "lng": -121.7757
+      }
+    ],
+    "photos": [
+      {
+        "file": "DSCF0150.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "DSCF0151.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "DSCF0164.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "DSCF0165.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_4969.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_4974.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_4984.jpg",
+        "stop": 0,
+        "showcase": true
+      },
+      {
+        "file": "IMG_4993.jpg",
+        "stop": 0,
+        "showcase": true
+      }
+    ]
+  }
+];
