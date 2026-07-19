@@ -16,11 +16,13 @@
   const $ = (id) => document.getElementById(id);
   const status = $('status');
 
-  // Location picker map — same offline-safe approach as the frame.
+  // Location picker map. Unlike the frame, the picker WANTS labels and
+  // street-level detail — you're aiming at a specific lake or town — so it
+  // uses the remote style as-is when online, and the bundled world map when
+  // offline.
   const p = window.CONFIG.palette;
-  const map = new maplibregl.Map({
-    container: 'picker',
-    style: {
+  function offlinePickerStyle() {
+    return {
       version: 8,
       sources: { world: { type: 'geojson', data: window.WORLD_GEOJSON, attribution: 'Natural Earth' } },
       layers: [
@@ -28,13 +30,21 @@
         { id: 'land', type: 'fill', source: 'world', paint: { 'fill-color': p.land } },
         { id: 'borders', type: 'line', source: 'world', paint: { 'line-color': p.border, 'line-width': 0.6, 'line-opacity': 0.55 } },
       ],
-    },
+    };
+  }
+  const map = new maplibregl.Map({
+    container: 'picker',
+    style: offlinePickerStyle(),
     center: [12, 22],
     zoom: 0.8,
     attributionControl: { compact: true },
     dragRotate: false,
     touchPitch: false,
   });
+  fetch(window.CONFIG.styleUrl)
+    .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then((style) => map.setStyle(style))
+    .catch(() => { /* offline — keep the bundled world map */ });
 
   const dot = document.createElement('div');
   dot.className = 'pin-dot';
@@ -135,7 +145,37 @@
     }
   }
 
-  // ------------------------------------------------------------------ submit
+  // ----------------------------------------------------------- submit / edit
+
+  let editSlug = null; // non-null while editing an existing trip
+
+  function exitEdit() {
+    editSlug = null;
+    $('submit').textContent = 'Add to the frame';
+    $('cancel-edit').style.display = 'none';
+    $('form').reset();
+    if (markerSet) { marker.remove(); markerSet = false; }
+  }
+
+  function enterEdit(trip) {
+    editSlug = trip.slug;
+    $('name').value = trip.name;
+    $('start').value = trip.startDate;
+    $('end').value = trip.endDate;
+    const stop = trip.stops[0] || {};
+    $('place').value = stop.place || '';
+    if (typeof stop.lat === 'number') {
+      setPin(stop.lng, stop.lat);
+      map.jumpTo({ center: [stop.lng, stop.lat], zoom: 8 });
+    }
+    $('submit').textContent = 'Save changes';
+    $('cancel-edit').style.display = 'block';
+    status.className = '';
+    status.textContent = `Editing "${trip.name}" — move the pin or change details, then save.`;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  $('cancel-edit').addEventListener('click', () => { exitEdit(); status.textContent = ''; });
 
   $('form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -145,22 +185,34 @@
     try {
       const lat = parseFloat($('lat').value);
       const lng = parseFloat($('lng').value);
-      status.textContent = 'Creating trip…';
-      const { trip } = await api('/api/trips', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: $('name').value.trim(),
-          startDate: $('start').value,
-          endDate: $('end').value,
-          stops: [{ place: $('place').value.trim(), lat, lng }],
-        }),
-      });
+      const details = {
+        name: $('name').value.trim(),
+        startDate: $('start').value,
+        endDate: $('end').value,
+        stops: [{ place: $('place').value.trim(), lat, lng }],
+      };
+      let trip;
+      if (editSlug) {
+        status.textContent = 'Saving changes…';
+        ({ trip } = await api(`/api/trips/${editSlug}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(details),
+        }));
+      } else {
+        status.textContent = 'Creating trip…';
+        ({ trip } = await api('/api/trips', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(details),
+        }));
+      }
 
-      const result = await uploadPhotos(trip.slug, [...$('photos').files], (msg) => { status.textContent = msg; });
-      reportUpload(trip.name, result);
-      $('form').reset();
-      if (markerSet) { marker.remove(); markerSet = false; }
+      const files = [...$('photos').files];
+      const result = await uploadPhotos(trip.slug, files, (msg) => { status.textContent = msg; });
+      if (files.length) reportUpload(trip.name, result);
+      else status.textContent = editSlug ? `Saved "${trip.name}".` : `Added "${trip.name}" — it's on the frame.`;
+      exitEdit();
       loadTrips();
     } catch (err) {
       status.className = 'error';
@@ -206,6 +258,11 @@
         row.className = 'trip-item';
         const info = document.createElement('span');
         info.innerHTML = `${t.name}<small>${t.stops[0]?.place ?? ''} · ${t.photos.length} photo${t.photos.length === 1 ? '' : 's'}</small>`;
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'del';
+        edit.textContent = 'Edit';
+        edit.addEventListener('click', () => enterEdit(t));
         const add = document.createElement('button');
         add.type = 'button';
         add.className = 'del';
@@ -223,7 +280,7 @@
           await api(`/api/trips/${t.slug}`, { method: 'DELETE' });
           loadTrips();
         });
-        row.append(info, add, del);
+        row.append(info, edit, add, del);
         list.appendChild(row);
       }
     } catch {

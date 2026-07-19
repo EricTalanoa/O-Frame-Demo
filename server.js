@@ -6,6 +6,7 @@
  *
  *   GET    /api/trips                  -> { trips: [Trip] }
  *   POST   /api/trips                  <- { name, startDate, endDate, stops: [{place, lat, lng}] }
+ *   PATCH  /api/trips/<slug>           <- same shape; updates details/stops, slug stays
  *   POST   /api/photos?slug=&name=     <- raw image bytes; saved to photos/<slug>/
  *   DELETE /api/trips/<slug>
  *
@@ -135,6 +136,28 @@ function createTrip(body) {
   return listTrips().find((t) => t.slug === slug);
 }
 
+// Update a trip's details/stops in place. The slug intentionally stays
+// stable across renames — it's the photo folder name and the pin identity.
+function updateTrip(slug, body) {
+  const trip = db.prepare('SELECT id FROM trips WHERE slug = ?').get(slug);
+  if (!trip) throw httpError(404, 'no such trip');
+  const { name, startDate, endDate, stops } = body;
+  if (!name || !startDate || !endDate) throw httpError(400, 'name, startDate and endDate are required');
+  if (!Array.isArray(stops) || !stops.length) throw httpError(400, 'at least one stop is required');
+  for (const s of stops) {
+    if (!s.place || typeof s.lat !== 'number' || typeof s.lng !== 'number') {
+      throw httpError(400, 'each stop needs place, lat and lng');
+    }
+  }
+  db.prepare('UPDATE trips SET name = ?, start_date = ?, end_date = ? WHERE id = ?')
+    .run(String(name), String(startDate), String(endDate), trip.id);
+  db.prepare('DELETE FROM stops WHERE trip_id = ?').run(trip.id);
+  const insStop = db.prepare('INSERT INTO stops (trip_id, ord, place, lat, lng) VALUES (?, ?, ?, ?, ?)');
+  stops.forEach((s, i) => insStop.run(trip.id, i, String(s.place), s.lat, s.lng));
+  writeSnapshot();
+  return listTrips().find((t) => t.slug === slug);
+}
+
 function deleteTrip(slug) {
   const trip = db.prepare('SELECT id FROM trips WHERE slug = ?').get(slug);
   if (!trip) throw httpError(404, 'no such trip');
@@ -217,6 +240,10 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/trips') {
     const body = JSON.parse((await readBody(req, 1e6)).toString('utf8') || '{}');
     return sendJSON(res, 201, { trip: createTrip(body) });
+  }
+  if (req.method === 'PATCH' && /^\/api\/trips\/[\w-]+$/.test(url.pathname)) {
+    const body = JSON.parse((await readBody(req, 1e6)).toString('utf8') || '{}');
+    return sendJSON(res, 200, { trip: updateTrip(url.pathname.split('/').pop(), body) });
   }
   if (req.method === 'DELETE' && /^\/api\/trips\/[\w-]+$/.test(url.pathname)) {
     deleteTrip(url.pathname.split('/').pop());
