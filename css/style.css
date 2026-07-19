@@ -1,13 +1,10 @@
+/* Theme variables (--t-*) are set from js/config.js by applyTheme(). */
 html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #22333e;
+  background: var(--t-ocean, #22333e);
   font-family: 'Georgia', 'Times New Roman', serif;
-}
-
-.pin {
-  cursor: pointer;
 }
 
 #map {
@@ -22,8 +19,8 @@ html, body {
   pointer-events: none;
   z-index: 5;
   background: radial-gradient(ellipse at center,
-    transparent 55%, rgba(10, 14, 18, 0.28) 100%);
-  box-shadow: inset 0 0 120px rgba(10, 14, 18, 0.35);
+    transparent 55%, var(--t-vignette, rgba(10, 14, 18, 0.28)) 100%);
+  box-shadow: inset 0 0 120px var(--t-vignette, rgba(10, 14, 18, 0.35));
 }
 
 /* Pins */
@@ -31,6 +28,7 @@ html, body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
+  cursor: pointer;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25), 0 1px 6px rgba(0, 0, 0, 0.4);
 }
 .pin--trip {
@@ -54,7 +52,7 @@ html, body {
   position: absolute;
   inset: 0;
   z-index: 10;
-  background: #0c1014;
+  background: var(--t-backdrop, rgba(10, 14, 18, 0.78));
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--fade, 1.6s) ease, visibility 0s linear var(--fade, 1.6s);
@@ -65,36 +63,33 @@ html, body {
   transition: opacity var(--fade, 1.6s) ease;
 }
 
-/* Photo deck: current card centered and dominant, prev/next peeking in
-   from the sides. --deck-* vars are set from js/config.js. */
-#slideshow {
-  background: rgba(10, 14, 18, 0.78);
-}
+/* Photo deck: cards size themselves to each photo's aspect ratio (set inline
+   by app.js, capped by the deck config); prev/next peek in from the screen
+   edges regardless of how wide each card is. */
 #slideshow .card {
   position: absolute;
   top: 50%;
-  left: 50%;
-  width: var(--deck-card-w, 68vw);
-  height: min(74vh, calc(var(--deck-card-w, 68vw) * 0.62));
   border-radius: 10px;
   overflow: hidden;
-  background: #f3ede2;
-  padding: 0.55vw;
+  background: var(--t-card, #f3ede2);
+  padding: 8px;
   box-sizing: border-box;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
-  transform: translate(-50%, -50%) scale(1);
-  transition: transform 0.8s cubic-bezier(0.25, 0.8, 0.35, 1), opacity 0.8s ease;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  transition: transform 0.8s cubic-bezier(0.25, 0.8, 0.35, 1), opacity 0.8s ease,
+              width 0.4s ease, height 0.4s ease;
   will-change: transform, opacity;
 }
 #slideshow .card img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 5px;
   display: block;
 }
 #slideshow .card--current {
+  left: 50%;
   z-index: 3;
+  transform: translate(-50%, -50%);
 }
 #slideshow .card--current img {
   animation: kenburns var(--kb-duration, 10s) linear forwards;
@@ -109,10 +104,12 @@ html, body {
   cursor: pointer;
 }
 #slideshow .card--prev {
-  transform: translate(calc(-50% - var(--deck-shift, 71vw)), -50%) scale(var(--deck-side-scale, 0.82));
+  left: 0;
+  transform: translate(calc(-100% + var(--deck-peek, 8vw)), -50%) scale(var(--deck-side-scale, 0.88));
 }
 #slideshow .card--next {
-  transform: translate(calc(-50% + var(--deck-shift, 71vw)), -50%) scale(var(--deck-side-scale, 0.82));
+  left: 100%;
+  transform: translate(calc(-1 * var(--deck-peek, 8vw)), -50%) scale(var(--deck-side-scale, 0.88));
 }
 #slideshow .card--off-left, #slideshow .card--off-right {
   z-index: 1;
@@ -120,10 +117,12 @@ html, body {
   pointer-events: none;
 }
 #slideshow .card--off-left {
-  transform: translate(calc(-50% - var(--deck-shift, 71vw) - 30vw), -50%) scale(var(--deck-side-scale, 0.82));
+  left: 0;
+  transform: translate(calc(-100% - 25vw), -50%) scale(var(--deck-side-scale, 0.88));
 }
 #slideshow .card--off-right {
-  transform: translate(calc(-50% + var(--deck-shift, 71vw) + 30vw), -50%) scale(var(--deck-side-scale, 0.82));
+  left: 100%;
+  transform: translate(25vw, -50%) scale(var(--deck-side-scale, 0.88));
 }
 
 /* Caption */
@@ -132,8 +131,8 @@ html, body {
   left: 4vw;
   bottom: 5vh;
   z-index: 11;
-  color: #f3ede2;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  color: var(--t-text, #f3ede2);
+  text-shadow: 0 2px 12px var(--t-text-glow, rgba(0, 0, 0, 0.6));
   opacity: 0;
   transition: opacity 1.2s ease;
   pointer-events: none;

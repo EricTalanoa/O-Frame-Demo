@@ -1,9 +1,2 @@
 data/oframe.db
 node_modules/
-
-# uploaded photos are runtime data; only the bundled samples are tracked
-photos/*
-!photos/kyoto-2019/
-!photos/lisbon-2022/
-!photos/queenstown-2023/
-!photos/marrakech-2021/
