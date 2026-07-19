@@ -26,6 +26,9 @@
   $('pause').addEventListener('click', () => send({ type: 'pause' }, 'Paused.'));
   $('resume').addEventListener('click', () => send({ type: 'resume' }, 'Resumed.'));
   $('next').addEventListener('click', () => send({ type: 'next' }, 'Skipping ahead.'));
+  $('zoom-out').addEventListener('click', () => send({ type: 'zoomOut' }, 'Zooming out.'));
+  $('map-only').addEventListener('click', () => send({ type: 'mapOnly', on: true }, 'Just the map.'));
+  $('map-only-off').addEventListener('click', () => send({ type: 'mapOnly', on: false }, 'Slideshows back on.'));
 
   // ------------------------------------------------------------------ themes
 
@@ -55,30 +58,137 @@
 
   // ------------------------------------------------------------------- trips
 
+  let allTrips = [];
+
   async function loadTrips() {
     const list = $('trips');
     try {
-      const { trips } = await (await fetch('/api/trips')).json();
+      ({ trips: allTrips } = await (await fetch('/api/trips')).json());
       list.textContent = '';
-      if (!trips.length) {
+      if (!allTrips.length) {
         list.innerHTML = '<div class="trip"><span>No trips yet — <a href="/upload" style="color:inherit">add one</a>.</span></div>';
         return;
       }
-      for (const t of trips) {
+      for (const t of allTrips) {
         const row = document.createElement('div');
-        row.className = 'trip';
+        row.className = 'trip' + (t.hidden ? ' hidden-trip' : '');
         const info = document.createElement('span');
-        info.innerHTML = `${t.name}<small>${t.stops[0]?.place ?? ''}</small>`;
+        info.innerHTML = `${t.name}<small>${t.stops[0]?.place ?? ''}${t.hidden ? ' · hidden' : ''}</small>`;
+        const hide = document.createElement('button');
+        hide.textContent = t.hidden ? 'Unhide' : 'Hide';
+        hide.addEventListener('click', async () => {
+          try {
+            await api(`/api/trips/${t.slug}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hidden: !t.hidden }),
+            });
+            status.textContent = t.hidden ? `"${t.name}" is back on the frame.` : `"${t.name}" hidden (not deleted).`;
+            loadTrips();
+          } catch (err) {
+            status.textContent = err.message;
+          }
+        });
         const show = document.createElement('button');
         show.textContent = 'Show';
+        show.disabled = !!t.hidden;
         show.addEventListener('click', () => send({ type: 'show', slug: t.slug }, `Showing "${t.name}".`));
-        row.append(info, show);
+        row.append(info, hide, show);
         list.appendChild(row);
       }
+      renderCollectionPicker();
     } catch {
       list.innerHTML = '<div class="trip"><span>Server not reachable — run <code>node server.js</code>.</span></div>';
     }
   }
+
+  async function api(url, opts) {
+    const res = await fetch(url, opts);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  }
+
+  // ------------------------------------------------------------- collections
+
+  async function loadCollections() {
+    const box = $('collections');
+    try {
+      const { collections, active } = await api('/api/collections');
+      box.textContent = '';
+      const all = document.createElement('button');
+      all.className = 'chip' + (active ? '' : ' active');
+      all.textContent = 'All trips';
+      all.addEventListener('click', async () => {
+        await api('/api/collections/activate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: null }),
+        });
+        status.textContent = 'Showing all trips.';
+        loadCollections();
+      });
+      box.appendChild(all);
+      for (const c of collections) {
+        const chip = document.createElement('button');
+        chip.className = 'chip' + (c.id === active ? ' active' : '');
+        chip.innerHTML = `${c.name} <span style="opacity:.6">(${c.slugs.length})</span> <span class="x">✕</span>`;
+        chip.addEventListener('click', async (e) => {
+          if (e.target.classList.contains('x')) {
+            if (!confirm(`Delete collection "${c.name}"? Trips are not affected.`)) return;
+            await api(`/api/collections/${c.id}`, { method: 'DELETE' });
+            status.textContent = `Deleted "${c.name}".`;
+          } else {
+            await api('/api/collections/activate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: c.id }),
+            });
+            status.textContent = `Collection "${c.name}" is on the frame.`;
+          }
+          loadCollections();
+        });
+        box.appendChild(chip);
+      }
+    } catch {
+      box.textContent = 'Server not reachable.';
+    }
+  }
+
+  function renderCollectionPicker() {
+    const box = $('col-trips');
+    box.textContent = '';
+    for (const t of allTrips) {
+      const label = document.createElement('label');
+      label.style.display = 'block';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = t.slug;
+      label.append(cb, ' ' + t.name);
+      box.appendChild(label);
+    }
+  }
+
+  $('col-save').addEventListener('click', async () => {
+    const name = $('col-name').value.trim();
+    const slugs = [...$('col-trips').querySelectorAll('input:checked')].map((c) => c.value);
+    if (!name) { status.textContent = 'Give the collection a name.'; return; }
+    if (!slugs.length) { status.textContent = 'Pick at least one trip.'; return; }
+    try {
+      const { settings } = await api('/api/settings');
+      await api('/api/collections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, slugs, settings }),
+      });
+      status.textContent = `Collection "${name}" saved with the current theme & timing.`;
+      $('col-name').value = '';
+      $('new-collection').open = false;
+      loadCollections();
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  });
 
   // ------------------------------------------------------------------ timing
 
@@ -117,5 +227,6 @@
     }
     showVals();
     loadTrips();
+    loadCollections();
   })();
 })();

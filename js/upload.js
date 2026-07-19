@@ -153,8 +153,56 @@
     editSlug = null;
     $('submit').textContent = 'Add to the frame';
     $('cancel-edit').style.display = 'none';
+    $('photo-manager').style.display = 'none';
     $('form').reset();
     if (markerSet) { marker.remove(); markerSet = false; }
+  }
+
+  // Thumbnail grid in edit mode: per-photo showcase toggle and remove.
+  function renderPhotoGrid(trip) {
+    const grid = $('photo-grid');
+    grid.textContent = '';
+    $('photo-manager').style.display = trip.photos.length ? 'block' : 'none';
+    for (const photo of trip.photos) {
+      const cell = document.createElement('div');
+      cell.className = 'pcell' + (photo.showcase ? '' : ' benched');
+      const img = document.createElement('img');
+      img.src = `photos/${trip.slug}/${photo.file}`;
+      img.alt = '';
+      const btns = document.createElement('div');
+      btns.className = 'pbtns';
+      const eye = document.createElement('button');
+      eye.type = 'button';
+      eye.textContent = photo.showcase ? '👁' : '🚫';
+      eye.title = photo.showcase ? 'Shown in the slideshow — tap to bench' : 'Benched — tap to show again';
+      eye.addEventListener('click', async () => {
+        try {
+          await api('/api/photos', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: trip.slug, file: photo.file, showcase: !photo.showcase }),
+          });
+          photo.showcase = !photo.showcase;
+          renderPhotoGrid(trip);
+        } catch (err) { status.className = 'error'; status.textContent = err.message; }
+      });
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = '✕';
+      del.title = 'Remove this photo';
+      del.addEventListener('click', async () => {
+        if (!confirm('Remove this photo from the trip? The file is deleted.')) return;
+        try {
+          await api(`/api/photos?slug=${encodeURIComponent(trip.slug)}&file=${encodeURIComponent(photo.file)}`, { method: 'DELETE' });
+          trip.photos = trip.photos.filter((p) => p !== photo);
+          renderPhotoGrid(trip);
+          loadTrips();
+        } catch (err) { status.className = 'error'; status.textContent = err.message; }
+      });
+      btns.append(eye, del);
+      cell.append(img, btns);
+      grid.appendChild(cell);
+    }
   }
 
   function enterEdit(trip) {
@@ -170,8 +218,9 @@
     }
     $('submit').textContent = 'Save changes';
     $('cancel-edit').style.display = 'block';
+    renderPhotoGrid(trip);
     status.className = '';
-    status.textContent = `Editing "${trip.name}" — move the pin or change details, then save.`;
+    status.textContent = `Editing "${trip.name}" — move the pin, manage photos, or change details, then save.`;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 

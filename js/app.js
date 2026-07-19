@@ -25,8 +25,13 @@
   const savedTheme = localStorage.getItem(THEME_KEY);
   if (savedTheme && cfg.themes[savedTheme]) cfg.theme = savedTheme;
 
+  function handTrips() {
+    return (window.TRIPS || []).filter((t) => !t.hidden);
+  }
+
+  // Serverless/static mode: hand-written trips + the committed snapshot.
   function bundledTrips() {
-    return mergeTrips(window.TRIPS || [], window.UPLOADED_TRIPS || []);
+    return mergeTrips(handTrips(), (window.UPLOADED_TRIPS || []).filter((t) => !t.hidden));
   }
 
   let trips = bundledTrips();
@@ -156,6 +161,16 @@
         layer.paint = { ...layer.paint, 'background-color': p.land };
         continue;
       }
+      // Administrative boundaries: theme muting washes these out, so pin them
+      // to the theme border color — and surface state/province lines at the
+      // resting zoom instead of only when deep-zoomed.
+      if (layer.type === 'line' && /boundary/.test(`${layer.id} ${layer['source-layer'] || ''}`)) {
+        layer.paint = { ...layer.paint, 'line-color': p.border };
+        if (cfg.showStateLines && /4|state|province/.test(layer.id + JSON.stringify(layer.filter || ''))) {
+          layer.minzoom = Math.min(layer.minzoom ?? 24, cfg.stateLinesMinZoom);
+        }
+        continue;
+      }
       for (const section of ['paint', 'layout']) {
         const props = layer[section];
         if (!props) continue;
@@ -171,7 +186,7 @@
   // Natural Earth GeoJSON, with a soft coast glow. No network, no tiles.
   function fallbackStyle() {
     const p = cfg.palette;
-    return {
+    const style = {
       version: 8,
       sources: {
         world: { type: 'geojson', data: window.WORLD_GEOJSON, attribution: 'Natural Earth' },
@@ -189,6 +204,14 @@
         },
       ],
     };
+    if (cfg.showStateLines && window.US_STATES_GEOJSON) {
+      style.sources.usStates = { type: 'geojson', data: window.US_STATES_GEOJSON };
+      style.layers.push({
+        id: 'state-lines', type: 'line', source: 'usStates', minzoom: cfg.stateLinesMinZoom,
+        paint: { 'line-color': p.border, 'line-width': 0.5, 'line-opacity': 0.4 },
+      });
+    }
+    return style;
   }
 
   let usingFallbackStyle = false;
@@ -229,10 +252,10 @@
     queuePos: 0,
     lastSlug: null,
     forcedSlug: null,     // pin click: show this trip next
+    mapOnly: false,       // remote "just sit on the map" mode
     inSlideshow: false,
     deckIndex: 0,
     activeMarkerEl: null,
-    tripsDirty: false,
   };
 
   function shuffled(arr) {
@@ -438,7 +461,8 @@
   // ----------------------------------------------------------- trips loading
 
   async function fetchServerTrips() {
-    const res = await fetch('/api/trips', { cache: 'no-store' });
+    // visible=1: the server applies hidden flags and the active collection
+    const res = await fetch('/api/trips?visible=1', { cache: 'no-store' });
     if (!res.ok) throw new Error('trips fetch failed: ' + res.status);
     return (await res.json()).trips || [];
   }
@@ -452,10 +476,16 @@
 
   async function refreshTrips() {
     try {
-      const merged = mergeTrips(bundledTrips(), await fetchServerTrips());
+      const merged = mergeTrips(handTrips(), await fetchServerTrips());
       if (JSON.stringify(merged) !== JSON.stringify(trips)) {
         trips = merged;
-        state.tripsDirty = true;
+        // apply right away — pins, queue, and resting view all track the list
+        const hadActive = !!state.activeMarkerEl;
+        buildMarkers();
+        if (hadActive) setActivePin(state.lastSlug);
+        rebuildQueue();
+        homeView = computeHomeView();
+        toast('Trips updated');
       }
     } catch {
       /* no server running — bundled data only */
@@ -586,23 +616,40 @@
         toast(cmd.mode === 'shuffle' ? 'Order: shuffle' : 'Order: walk through time');
       } else if (cmd.type === 'show' && cmd.slug) {
         showTripNow(cmd.slug);
+      } else if (cmd.type === 'zoomOut') {
+        goHome();
+      } else if (cmd.type === 'mapOnly') {
+        setMapOnly(!!cmd.on);
+      } else if (cmd.type === 'tripsChanged') {
+        refreshTrips();
       } else if (cmd.type === 'settings') {
         applySettings(cmd);
       }
     };
   }
 
+  // Pull back to the resting view right now (remote "Zoom out").
+  function goHome() {
+    if (state.inSlideshow) {
+      state.deckIndex = Infinity;
+      skip();
+    }
+    state.userHold = false;
+    map.flyTo({ center: homeView.center, zoom: homeView.zoom, speed: cfg.flySpeed, curve: cfg.flyCurve });
+  }
+
+  // "Just sit on the map": no fly-ins, no slideshows, until switched off.
+  function setMapOnly(on) {
+    state.mapOnly = on;
+    toast(on ? 'Map only' : 'Slideshows resumed');
+    if (on) goHome();
+    else skip();
+  }
+
   async function ambientLoop() {
     rebuildQueue();
     while (true) {
-      if (state.tripsDirty) {
-        state.tripsDirty = false;
-        buildMarkers();
-        rebuildQueue();
-        homeView = computeHomeView();
-        toast('Trips updated');
-      }
-      if (!trips.length) { await wait(cfg.worldDwellSeconds); continue; }
+      if (state.mapOnly || !trips.length) { await wait(cfg.worldDwellSeconds); continue; }
       if (!state.forcedSlug) await wait(cfg.worldDwellSeconds);
       const trip = nextTrip();
       const stop = trip.stops[0]; // fly to the first stop
@@ -658,7 +705,7 @@
     applyThemeVars();
     let serverPresent = false;
     try {
-      trips = mergeTrips(bundledTrips(), await fetchServerTrips());
+      trips = mergeTrips(handTrips(), await fetchServerTrips());
       serverPresent = true;
       const { settings } = await (await fetch('/api/settings', { cache: 'no-store' })).json();
       applySettings(settings);

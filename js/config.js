@@ -10,6 +10,11 @@ window.CONFIG = {
   // No place-name labels — the map should read as wall art, not an atlas.
   showLabels: false,
 
+  // State/province lines: promoted to lower zooms online, and US state
+  // borders drawn on the offline fallback map.
+  showStateLines: true,
+  stateLinesMinZoom: 2.5,
+
   // When a server is running (node server.js), the frame re-checks it for
   // newly uploaded trips this often (seconds).
   tripsRefreshSeconds: 120,

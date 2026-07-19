@@ -85,6 +85,22 @@
     }
     .trip small { display: block; opacity: 0.6; }
     .trip button { flex: none; padding: 8px 14px; font-size: 14px; }
+    .trip.hidden-trip { opacity: 0.45; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 8px 8px 0;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(243, 237, 226, 0.08);
+      color: var(--parchment);
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .chip.active { border-color: var(--accent); background: rgba(201, 79, 79, 0.25); }
+    .chip .x { opacity: 0.6; padding: 0 2px; }
     /* Sliders */
     .slider { margin: 14px 0; }
     .slider label { display: flex; justify-content: space-between; font-size: 13px; opacity: 0.85; margin-bottom: 6px; }
@@ -102,6 +118,11 @@
     <button id="resume">Resume</button>
     <button id="next" class="primary">Next ▸</button>
   </div>
+  <div class="row" style="margin-top:10px">
+    <button id="zoom-out">Zoom out</button>
+    <button id="map-only">Just the map</button>
+    <button id="map-only-off">Slideshows on</button>
+  </div>
 
   <h2>Theme</h2>
   <div class="themes" id="themes"></div>
@@ -112,7 +133,16 @@
     <button id="order-chrono">Walk through time</button>
   </div>
 
-  <h2>Show a trip now</h2>
+  <h2>Collections</h2>
+  <div id="collections"></div>
+  <details id="new-collection" style="margin-top:10px">
+    <summary style="cursor:pointer; font-size:14px; opacity:0.8">New collection…</summary>
+    <input id="col-name" placeholder="Collection name (e.g. Rugby)" style="width:100%; margin:10px 0 6px; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:rgba(243,237,226,0.08); color:var(--parchment); font-size:15px" />
+    <div id="col-trips" style="font-size:14px; line-height:2"></div>
+    <button id="col-save" style="margin-top:8px">Save collection (keeps current theme &amp; timing)</button>
+  </details>
+
+  <h2>Trips</h2>
   <div id="trips"></div>
 
   <h2>Timing</h2>
