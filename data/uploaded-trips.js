@@ -364,8 +364,8 @@ window.UPLOADED_TRIPS = [
       {
         "order": 0,
         "place": "Lake of the Woods, Oregon",
-        "lat": 42.3608,
-        "lng": -121.2150
+        "lat": 42.3786,
+        "lng": -122.2121
       }
     ],
     "photos": [
